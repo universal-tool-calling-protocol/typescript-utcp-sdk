@@ -1,0 +1,90 @@
+// packages/core/src/interfaces/communication_protocol.ts
+import { CallTemplateBase } from '@utcp/core/data/call_template';
+import { UtcpManual } from '@utcp/core/data/utcp_manual';
+
+// Forward declare UtcpClient to avoid circular dependency for TYPE_CHECKING
+// In TypeScript, interfaces are structural, so a simple reference is often enough,
+// but for explicit type hints that might involve methods of UtcpClient,
+// a forward declaration or a separate type might be useful.
+// For now, we'll keep it simple and assume UtcpClient will be known in implementations.
+// More advanced patterns might involve using 'this' type or a generic.
+interface UtcpClient { /* Minimal interface if needed, or omit and rely on concrete imports in implementations */ }
+
+
+/**
+ * Result of a manual registration operation.
+ */
+export interface RegisterManualResult {
+  manualCallTemplate: CallTemplateBase;
+  manual: UtcpManual; // Simplified: only the tools are strictly needed from the manual for registration result
+  success: boolean;
+  errors: string[];
+}
+
+/**
+ * Abstract interface for UTCP client transport implementations (Communication Protocols).
+ *
+ * Defines the contract that all transport implementations must follow to
+ * integrate with the UTCP client. Each transport handles communication
+ * with a specific type of provider (HTTP, CLI, WebSocket, etc.).
+ */
+export interface CommunicationProtocol {
+  /**
+   * Registers a manual and its tools.
+   *
+   * Connects to the provider and retrieves the list of tools it offers.
+   * This may involve making discovery requests, parsing configuration files,
+   * or initializing connections depending on the provider type.
+   *
+   * @param caller The UTCP client that is calling this method. (Type will be properly defined in UtcpClient).
+   * @param manualCallTemplate The call template of the manual to register.
+   * @returns A RegisterManualResult object containing the call template and manual.
+   */
+  registerManual(caller: UtcpClient, manualCallTemplate: CallTemplateBase): Promise<RegisterManualResult>;
+
+  /**
+   * Deregisters a manual and its tools.
+   *
+   * Cleanly disconnects from the provider and releases any associated
+   * resources such as connections, processes, or file handles.
+   *
+   * @param caller The UTCP client that is calling this method.
+   * @param manualCallTemplate The call template of the manual to deregister.
+   */
+  deregisterManual(caller: UtcpClient, manualCallTemplate: CallTemplateBase): Promise<void>;
+
+  /**
+   * Executes a tool call through this transport.
+   *
+   * Sends a tool invocation request to the provider using the appropriate
+   * protocol and returns the result. Handles serialization of arguments
+   * and deserialization of responses according to the transport type.
+   *
+   * @param caller The UTCP client that is calling this method.
+   * @param toolName Name of the tool to call (may include provider prefix).
+   * @param toolArgs Dictionary of arguments to pass to the tool.
+   * @param toolCallTemplate Call template of the tool to call.
+   * @returns The tool's response.
+   */
+  callTool(caller: UtcpClient, toolName: string, toolArgs: Record<string, any>, toolCallTemplate: CallTemplateBase): Promise<any>;
+
+  /**
+   * Executes a tool call through this transport streamingly.
+   *
+   * Sends a tool invocation request to the provider using the appropriate
+   * protocol and returns an async generator for streaming results.
+   *
+   * @param caller The UTCP client that is calling this method.
+   * @param toolName Name of the tool to call.
+   * @param toolArgs Arguments to pass to the tool.
+   * @param toolCallTemplate Call template of the tool to call.
+   * @returns An async generator that yields chunks of the tool's response.
+   */
+  callToolStreaming(caller: UtcpClient, toolName: string, toolArgs: Record<string, any>, toolCallTemplate: CallTemplateBase): AsyncGenerator<any, void, unknown>;
+
+  /**
+   * Closes any persistent connections or resources held by the communication protocol.
+   * This is a cleanup method that should be called when the client is shut down.
+   */
+  close(): Promise<void>;
+}
