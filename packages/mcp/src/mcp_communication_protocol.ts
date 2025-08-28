@@ -2,29 +2,11 @@
 import { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport, StreamableHTTPClientTransportOptions } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-// Infer McpTool structure based on server-side examples and common usage patterns
-interface InferredMcpTool {
-  name: string;
-  description?: string;
-  inputSchema: any;
-  outputSchema?: any;
-  tags?: string[];
-  averageResponseSize?: number;
-}
-// Inferred options for StdioClientTransport constructor
-interface InferredStdioClientTransportOptions {
-  command: string;
-  args?: string[];
-  cwd?: string;
-  env?: Record<string, string>;
-}
-
 import axios, { AxiosInstance } from 'axios';
 import { URLSearchParams } from 'url';
-
 import { CommunicationProtocol, RegisterManualResult } from '@utcp/core/interfaces/communication_protocol';
 import { CallTemplateBase } from '@utcp/core/data/call_template';
-import { Tool, JsonSchemaZodSchema } from '@utcp/core/data/tool';
+import { Tool, JsonSchemaZodSchema, JsonSchema } from '@utcp/core/data/tool';
 import { UtcpManualSchema } from '@utcp/core/data/utcp_manual';
 import { OAuth2Auth } from '@utcp/core/data/auth';
 import { IUtcpClient } from '@utcp/core/client/utcp_client';
@@ -132,19 +114,18 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
   private async _withMcpClient<T>(
     serverConfig: McpServerConfig,
     auth: OAuth2Auth | undefined,
-    operation: (client: McpClient) => Promise<T>
+    operation: (client: any) => Promise<T>
   ): Promise<T> {
     let mcpClient: McpClient | undefined;
     try {
       if (serverConfig.transport === 'stdio') {
         const stdioConfig = McpStdioServerSchema.parse(serverConfig);
-        const transportOptions: InferredStdioClientTransportOptions = {
+        const transport = new StdioClientTransport({
           command: stdioConfig.command,
           args: stdioConfig.args,
-          cwd: (stdioConfig as any).cwd,
+          cwd: stdioConfig.cwd,
           env: stdioConfig.env,
-        };
-        const transport = new StdioClientTransport(transportOptions);
+        });
         mcpClient = new McpClient({ name: 'utcp-mcp-stdio-client', version: '1.0.0' });
         await mcpClient.connect(transport);
         return await operation(mcpClient);
@@ -267,15 +248,29 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
       for (const [serverName, serverConfig] of Object.entries(mcpCallTemplate.config.mcpServers)) {
         try {
           this._logInfo(`Discovering tools for MCP server '${serverName}' via '${serverConfig.transport}' transport.`);
-          const mcpTools: InferredMcpTool[] = await this._withMcpClient(serverConfig, mcpCallTemplate.auth, (client) => client.listTools().then(res => res.tools));
+          const mcpTools: any[] = await this._withMcpClient(serverConfig, mcpCallTemplate.auth, (client) => client.listTools().then(res => res.tools));
           this._logInfo(`Discovered ${mcpTools.length} tools from MCP server '${serverName}'.`);
 
           for (const mcpTool of mcpTools) {
+            const normalizeMcpSchema = (schema: any): JsonSchema => {
+              const normalized = JSON.parse(JSON.stringify(schema || {}));
+              if (normalized.properties && !normalized.type) {
+                normalized.type = 'object';
+              }
+              
+              if (Object.keys(normalized).length === 0) {
+                  normalized.type = 'object';
+                  normalized.properties = {};
+              }
+          
+              return normalized as JsonSchema;
+            };
+          
             const utcpTool: Tool = {
               name: mcpTool.name,
               description: mcpTool.description || '',
-              inputs: JsonSchemaZodSchema.parse(mcpTool.inputSchema || {}),
-              outputs: JsonSchemaZodSchema.parse(mcpTool.outputSchema || {}),
+              inputs: JsonSchemaZodSchema.parse(normalizeMcpSchema(mcpTool.inputSchema)),
+              outputs: JsonSchemaZodSchema.parse(normalizeMcpSchema(mcpTool.outputSchema)),
               tags: mcpTool.tags || [],
               average_response_size: mcpTool.averageResponseSize,
               tool_call_template: manualCallTemplate,
@@ -320,8 +315,8 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
       try {
         this._logInfo(`Attempting to call tool '${toolName}' on MCP server '${serverName}'.`);
         
-        const availableMcpTools: InferredMcpTool[] = await this._withMcpClient(serverConfig, mcpCallTemplate.auth, (client) => client.listTools().then(res => res.tools));
-        const toolExistsOnServer = availableMcpTools.some((t: InferredMcpTool) => t.name === toolName);
+        const availableMcpTools: any[] = await this._withMcpClient(serverConfig, mcpCallTemplate.auth, (client) => client.listTools().then(res => res.tools));
+        const toolExistsOnServer = availableMcpTools.some((t: any) => t.name === toolName);
 
         if (!toolExistsOnServer) {
           this._logInfo(`Tool '${toolName}' not found on MCP server '${serverName}'. Trying next server.`);

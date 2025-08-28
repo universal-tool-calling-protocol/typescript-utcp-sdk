@@ -17,6 +17,8 @@
       "name": "@utcp/core",
       "version": "1.0.1",
       "dependencies": {
+        "@utcp/http": "workspace:*",
+        "@utcp/mcp": "workspace:*",
         "zod": "^4.1.3",
       },
       "devDependencies": {
@@ -58,6 +60,11 @@
       "version": "1.0.1",
       "dependencies": {
         "@utcp/core": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "bun-types": "latest",
+        "typescript": "^5.0.0",
       },
     },
   },
