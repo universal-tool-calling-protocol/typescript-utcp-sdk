@@ -1,19 +1,19 @@
 // typescript-utcp/tsconfig.test.json
 {
-    "extends": "./tsconfig.json", // Extend your base config
-    "compilerOptions": {
-      // Override output directory for tests if needed, or keep it in memory
-      "outDir": "./dist-test",
-      "rootDir": ".",
-      "types": ["bun-test", "node"] // Include Bun's test types and Node types
-    },
-    "include": [
-      "tests/**/*.ts", // Include your test files
-      "packages/**/src/**/*.ts" // Include source files for type checking during tests
-    ],
-    "exclude": [
-      "node_modules",
-      "packages/**/dist", // Exclude built output from packages
-      "dist" // Exclude root built output
-    ]
-  }
+  "extends": "./tsconfig.json", 
+  "compilerOptions": {
+  
+    "outDir": "./dist-test",
+    "rootDir": ".",
+    "types": ["bun-test", "node"] 
+  },
+  "include": [
+    "tests/**/*.ts",
+    "packages/**/src/**/*.ts" 
+  ],
+  "exclude": [
+    "node_modules",
+    "packages/**/dist",
+    "dist"
+  ]
+}
