@@ -16,7 +16,7 @@ export const HttpCallTemplateSchema = CallTemplateBaseSchema.extend({
   headers: z.record(z.string(), z.string()).optional().describe('Optional static headers to include in all requests.'),
   body_field: z.string().optional().default('body').describe('The name of the single input field to be sent as the request body.'),
   header_fields: z.array(z.string()).optional().describe('List of input fields to be sent as request headers.'),
-  timeout: z.number().default(30000).describe('Request timeout in milliseconds.'), // Added this line
+  timeout: z.number().optional().default(30000).describe("Request timeout in milliseconds."),
 });
 
 export type HttpCallTemplate = z.infer<typeof HttpCallTemplateSchema>;

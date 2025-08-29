@@ -6,25 +6,24 @@ import axios, { AxiosInstance } from 'axios';
 import { URLSearchParams } from 'url';
 import { CommunicationProtocol, RegisterManualResult } from '@utcp/core/interfaces/communication_protocol';
 import { CallTemplateBase } from '@utcp/core/data/call_template';
-import { Tool, JsonSchemaZodSchema, JsonSchema } from '@utcp/core/data/tool';
 import { UtcpManualSchema } from '@utcp/core/data/utcp_manual';
 import { OAuth2Auth } from '@utcp/core/data/auth';
 import { IUtcpClient } from '@utcp/core/client/utcp_client';
-import { McpCallTemplate, McpCallTemplateSchema, McpStdioServerSchema, McpHttpServerSchema, McpServerConfig } from '@utcp/mcp/mcp_call_template';
+import { McpCallTemplate, McpCallTemplateSchema, McpStdioServerSchema, McpHttpServer, McpHttpServerSchema,McpStdioServer, McpServerConfig } from '@utcp/mcp/mcp_call_template';
+import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'; 
 
 /**
  * MCP communication protocol implementation.
- * Connects to MCP servers (stdio or HTTP) for tool discovery and execution.
- * Operates in a session-per-operation mode where each interaction creates a new MCP client.
+ * Connects to MCP servers (stdio or HTTP) for tool execution.
+ * This implementation is session-per-operation, creating a new client for each call.
  */
 export class McpCommunicationProtocol implements CommunicationProtocol {
   private _oauthTokens: Map<string, { accessToken: string; expiresAt: number }> = new Map();
   private _axiosInstance: AxiosInstance;
+  private _httpMcpClientCache: Map<string, McpClient> = new Map();
 
   constructor() {
-    this._axiosInstance = axios.create({
-      timeout: 30000,
-    });
+    this._axiosInstance = axios.create({ timeout: 30000 });
   }
 
   private _logInfo(message: string): void {
@@ -53,7 +52,7 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
           });
           const response = await this._axiosInstance.post(authDetails.token_url, bodyData.toString(), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
           if (!response.data.access_token) throw new Error("Access token not found in response.");
-          const expiresAt = Date.now() + (response.data.expires_in * 1000 || 3600 * 1000);
+          const expiresAt = Date.now() + ((response.data.expires_in || 3600) * 1000);
           this._oauthTokens.set(clientId, { accessToken: response.data.access_token, expiresAt });
           return response.data.access_token;
         })(),
@@ -64,7 +63,7 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
           });
           if (!response.data.access_token) throw new Error("Access token not found in response.");
-          const expiresAt = Date.now() + (response.data.expires_in * 1000 || 3600 * 1000);
+          const expiresAt = Date.now() + ((response.data.expires_in || 3600) * 1000);
           this._oauthTokens.set(clientId, { accessToken: response.data.access_token, expiresAt });
           return response.data.access_token;
         })()
@@ -75,164 +74,177 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
       throw new Error(`Failed to fetch OAuth2 token for client '${clientId}': ${errorMessages}`);
     }
   }
-
+  private async _getOrCreateHttpClient(serverConfig: McpHttpServer, auth?: OAuth2Auth): Promise<McpClient> {
+    const cacheKey = serverConfig.url;
+    if (this._httpMcpClientCache.has(cacheKey)) {
+        return this._httpMcpClientCache.get(cacheKey)!;
+    }
+  
+    let authHeader: Record<string, string> = {};
+    if (auth) {
+        const token = await this._handleOAuth2(auth);
+        authHeader['Authorization'] = `Bearer ${token}`;
+    }
+  
+    const transportOptions: StreamableHTTPClientTransportOptions = {
+        requestInit: { headers: { ...(serverConfig.headers || {}), ...authHeader } }
+    };
+    const transport = new StreamableHTTPClientTransport(new URL(serverConfig.url), transportOptions);
+  
+    const mcpClient = new McpClient({ name: 'utcp-mcp-http-client', version: '1.0.1' });
+    await mcpClient.connect(transport);
+  
+    this._httpMcpClientCache.set(cacheKey, mcpClient);
+    return mcpClient;
+  }
+  /**
+   * A helper to create, connect, and tear down an MCP client session for a single operation.
+   */
   private async _withMcpClient<T>(
     serverConfig: McpServerConfig,
     auth: OAuth2Auth | undefined,
     operation: (client: McpClient) => Promise<T>
   ): Promise<T> {
     let mcpClient: McpClient | undefined;
-    let transport;
+    let closeClientAfter = false;
 
     try {
       if (serverConfig.transport === 'stdio') {
-        const stdioConfig = McpStdioServerSchema.parse(serverConfig);
-        transport = new StdioClientTransport({
-          command: stdioConfig.command,
-          args: stdioConfig.args,
-          cwd: stdioConfig.cwd,
-          env: stdioConfig.env,
-        });
+        const stdioConfig = serverConfig as McpStdioServer; // Cast for type safety
+        const transport = new StdioClientTransport({ command: stdioConfig.command, args: stdioConfig.args, cwd: stdioConfig.cwd, env: stdioConfig.env });
+        mcpClient = new McpClient({ name: 'utcp-mcp-stdio-client', version: '1.0.1' });
+        await mcpClient.connect(transport);
+        closeClientAfter = true;
       } else if (serverConfig.transport === 'http') {
-        const httpConfig = McpHttpServerSchema.parse(serverConfig);
-        let authHeader: Record<string, string> = {};
-        if (auth) {
-          const token = await this._handleOAuth2(auth);
-          authHeader['Authorization'] = `Bearer ${token}`;
-        }
-        const transportOptions: StreamableHTTPClientTransportOptions = {
-          requestInit: { headers: { ...(httpConfig.headers || {}), ...authHeader } },
-        };
-        transport = new StreamableHTTPClientTransport(new URL(httpConfig.url), transportOptions);
+        const httpConfig = serverConfig as McpHttpServer; // Cast for type safety
+        mcpClient = await this._getOrCreateHttpClient(httpConfig, auth);
+        closeClientAfter = false;
       } else {
-        throw new Error(`Unsupported MCP transport: '${(serverConfig as any).transport}'`);
+        const unknownTransport = (serverConfig as any).transport;
+        throw new Error(`Unsupported MCP transport: '${unknownTransport}'`);
       }
 
-      mcpClient = new McpClient({ name: 'utcp-mcp-client', version: '1.0.0' });
-      await mcpClient.connect(transport);
-      return await operation(mcpClient);
+      const result = await Promise.race([
+        operation(mcpClient),
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error("MCP operation timed out")), 4500))
+    ]);
+    return result;
+  } finally {
+    if (mcpClient && closeClientAfter) {
+      await mcpClient.close();
+    }
+  }
+}
 
-    } finally {
-      if (mcpClient) {
-        await mcpClient.close();
-      }
+  /**
+   * Registers an MCP manual. This is a passthrough operation that validates the
+   * CallTemplate. It does not discover tools from the server; it trusts the UTCP manual
+   * being registered as the source of truth.
+   */ 
+  public async registerManual(caller: IUtcpClient, manualCallTemplate: CallTemplateBase): Promise<RegisterManualResult> {
+    this._logInfo(`Validating MCP manual call template '${manualCallTemplate.name}'.`);
+    try {
+      const mcpCallTemplate = McpCallTemplateSchema.parse(manualCallTemplate);
+      return {
+        manualCallTemplate: mcpCallTemplate,
+        manual: UtcpManualSchema.parse({ tools: [] }), 
+        success: true,
+        errors: [],
+      };
+    } catch(e: any) {
+        this._logError(`Invalid MCP call template for '${manualCallTemplate.name}':`, e);
+        return {
+            manualCallTemplate: manualCallTemplate,
+            manual: UtcpManualSchema.parse({ tools: [] }),
+            success: false,
+            errors: [e.message],
+        };
     }
   }
 
-  private _processMcpToolResult(result: any, toolName: string): any {
-    this._logInfo(`Processing MCP tool result for '${toolName}'.`);
+  /**
+   * Processes the result from an MCP tool call, unwrapping content as needed.
+   */
+  private _processMcpToolResult(result: any): any {
     if (result && typeof result === 'object') {
-      if ('structured_output' in result) return result.structured_output;
+      if ('structured_output' in result) {
+        return result.structured_output;
+      }
       if (Array.isArray(result.content)) {
         const processedList = result.content.map((item: any) => {
-          if (item && typeof item === 'object' && 'text' in item && typeof item.text === 'string') {
+          if (item && item.type === 'text' && typeof item.text === 'string') {
             return this._parseTextContent(item.text);
           }
           return item;
         });
         return processedList.length === 1 ? processedList[0] : processedList;
       }
-      if ('result' in result) return result.result;
     }
     return result;
   }
-
+  
+  
+  /**
+   * Attempts to parse a string as JSON, otherwise returns the original string.
+   */
   private _parseTextContent(text: string): any {
     try {
-      const trimmed = text.trim();
-      if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-        return JSON.parse(trimmed);
+      // Try to parse as JSON first
+      return JSON.parse(text);
+    } catch {
+      // If it fails, check if it's a number
+      const num = Number(text);
+      if (!isNaN(num) && isFinite(num)) {
+          return num;
       }
-    } catch {}
-    return text;
-  }
-
-  public async registerManual(caller: IUtcpClient, manualCallTemplate: CallTemplateBase): Promise<RegisterManualResult> {
-    const mcpCallTemplate = McpCallTemplateSchema.parse(manualCallTemplate);
-    const allTools: Tool[] = [];
-    const errors: string[] = [];
-
-    if (mcpCallTemplate.config?.mcpServers) {
-      for (const [serverName, serverConfig] of Object.entries(mcpCallTemplate.config.mcpServers)) {
-        try {
-          this._logInfo(`Discovering tools for MCP server '${serverName}'...`);
-          const mcpTools = await this._withMcpClient(serverConfig, mcpCallTemplate.auth, 
-            (client) => client.listTools().then(res => res.tools)
-          );
-          this._logInfo(`Discovered ${mcpTools.length} tools from '${serverName}'.`);
-
-          for (const mcpTool of mcpTools) {
-            // FIX: Safely handle potentially undefined or non-array `tags`.
-            const tags = Array.isArray(mcpTool.tags) ? mcpTool.tags : [];
-            
-            // FIX: Safely handle `averageResponseSize` being `unknown`.
-            const averageResponseSize = typeof mcpTool.averageResponseSize === 'number' 
-              ? mcpTool.averageResponseSize 
-              : undefined;
-
-            const utcpTool: Tool = {
-              name: mcpTool.name,
-              description: mcpTool.description || '',
-              inputs: JsonSchemaZodSchema.parse(mcpTool.inputSchema || { type: 'object', properties: {} }),
-              outputs: JsonSchemaZodSchema.parse(mcpTool.outputSchema || { type: 'object', properties: {} }),
-              tags: tags,
-              average_response_size: averageResponseSize,
-              tool_call_template: manualCallTemplate,
-            };
-            allTools.push(utcpTool);
-          }
-        } catch (e: any) {
-          const errorMessage = `Failed to discover tools for server '${serverName}': ${e.message || String(e)}`;
-          this._logError(errorMessage, e);
-          errors.push(errorMessage);
-        }
-      }
+      // Otherwise, return the original string
+      return text;
     }
-    return {
-      manualCallTemplate: mcpCallTemplate,
-      manual: UtcpManualSchema.parse({ tools: allTools }),
-      success: errors.length === 0,
-      errors,
-    };
   }
 
   public async deregisterManual(caller: IUtcpClient, manualCallTemplate: CallTemplateBase): Promise<void> {
-    this._logInfo(`Deregistering MCP manual '${manualCallTemplate.name}' (no-op).`);
+    this._logInfo(`Deregistering MCP manual '${manualCallTemplate.name}' (no-op in session-per-operation mode).`);
+    return Promise.resolve();
   }
 
+  /**
+   * Executes a tool call on an MCP server.
+   */
   public async callTool(caller: IUtcpClient, toolName: string, toolArgs: Record<string, any>, toolCallTemplate: CallTemplateBase): Promise<any> {
     const mcpCallTemplate = McpCallTemplateSchema.parse(toolCallTemplate);
     if (!mcpCallTemplate.config?.mcpServers) {
       throw new Error(`No MCP server configuration for tool '${toolName}'.`);
     }
-
+    
     for (const [serverName, serverConfig] of Object.entries(mcpCallTemplate.config.mcpServers)) {
       try {
         this._logInfo(`Attempting tool '${toolName}' on server '${serverName}'.`);
-        const availableMcpTools = await this._withMcpClient(serverConfig, mcpCallTemplate.auth, 
-          (client) => client.listTools().then(res => res.tools)
+        const result = await this._withMcpClient(serverConfig, mcpCallTemplate.auth, 
+          (client) => client.callTool({ name: toolName, arguments: toolArgs })
         );
-        if (!availableMcpTools.some((t: any) => t.name === toolName)) {
-          this._logInfo(`Tool '${toolName}' not found on server '${serverName}'.`);
-          continue;
-        }
-        const result = await this._withMcpClient(serverConfig, mcpCallTemplate.auth, (client) => client.callTool({ name: toolName, arguments: toolArgs }));
-        return this._processMcpToolResult(result, toolName);
+        return this._processMcpToolResult(result);
       } catch (e: any) {
-        this._logError(`Error calling '${toolName}' on '${serverName}':`, e);
+        this._logError(`Call to '${toolName}' on server '${serverName}' failed:`, e.message);
       }
     }
-    throw new Error(`Tool '${toolName}' not found or failed on all configured MCP servers.`);
+    throw new Error(`Tool '${toolName}' failed on all configured MCP servers.`);
   }
 
+
   public async *callToolStreaming(caller: IUtcpClient, toolName: string, toolArgs: Record<string, any>, toolCallTemplate: CallTemplateBase): AsyncGenerator<any, void, unknown> {
-    this._logInfo(`MCP does not support streaming for '${toolName}'. Fetching full response.`);
+    this._logInfo(`MCP protocol does not support streaming for '${toolName}'. Fetching full response as a single chunk.`);
     const result = await this.callTool(caller, toolName, toolArgs, toolCallTemplate);
     yield result;
   }
 
   public async close(): Promise<void> {
+    for (const client of this._httpMcpClientCache.values()) {
+        if (client && typeof client.close === 'function') {
+            await client.close();
+        }
+    }
+    this._httpMcpClientCache.clear();
     this._oauthTokens.clear();
-    this._logInfo("MCP Communication Protocol closed.");
+    this._logInfo("MCP Communication Protocol closed and clients cleared.");
   }
 }

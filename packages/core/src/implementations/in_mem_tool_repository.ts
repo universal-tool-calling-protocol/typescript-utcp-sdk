@@ -24,7 +24,7 @@ export class InMemToolRepository implements ToolRepository {
    * @param manual The complete UTCP Manual object to save.
    */
   public async saveManual(manualCallTemplate: CallTemplateBase, manual: UtcpManual): Promise<void> {
-    const manualName = manualCallTemplate.name;
+    const manualName = manualCallTemplate.name!; 
 
     // Remove old tools associated with this manual
     const oldManual = this._manuals.get(manualName);

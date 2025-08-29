@@ -11,7 +11,7 @@ import { TextCallTemplateSchema } from '@utcp/text/text_call_template';
  * It's designed to be called once when the Text plugin is loaded.
  */
 export function registerTextPlugin(): void {
-  pluginRegistry.registerCallTemplateSchema('text', TextCallTemplateSchema);
+  pluginRegistry.registerCallTemplateSchema('text', TextCallTemplateSchema as any);
 }
 
 export * from './text_call_template';

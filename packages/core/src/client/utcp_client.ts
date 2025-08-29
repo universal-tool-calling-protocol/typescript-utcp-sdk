@@ -66,6 +66,9 @@ export class UtcpClient implements IUtcpClient {
   }
 
   public async registerManual(manualCallTemplate: CallTemplateBase): Promise<RegisterManualResult> {
+    if (!manualCallTemplate.name) {
+      manualCallTemplate.name = crypto.randomUUID();
+    }
     manualCallTemplate.name = manualCallTemplate.name.replace(/[^\w]/g, '_');
 
     if (await this.toolRepository.getManual(manualCallTemplate.name)) {
@@ -190,7 +193,7 @@ export class UtcpClient implements IUtcpClient {
   }
 
   public async substituteCallTemplateVariables<T extends CallTemplateBase>(callTemplate: T, namespace?: string): Promise<T> {
-    const specificCallTemplateSchema = pluginRegistry.getCallTemplateSchema(callTemplate.call_template_type);
+    const specificCallTemplateSchema = pluginRegistry.getCallTemplateUnionSchema();
     if (!specificCallTemplateSchema) {
       console.warn(`No specific CallTemplate schema registered for type '${callTemplate.call_template_type}'. ` +
                    `Falling back to base schema for variable substitution validation.`);

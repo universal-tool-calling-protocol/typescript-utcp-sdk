@@ -7,7 +7,7 @@ import { AuthSchema } from '@utcp/core/data/auth'; // Import from @utcp/core ali
  * It provides the common fields every call template must have.
  */
 export const CallTemplateBaseSchema = z.object({
-  name: z.string().default(() => crypto.randomUUID()),
+  name: z.string().optional(),
   call_template_type: z.string()
     .describe('The transport protocol type used by this call template.'),
   auth: AuthSchema.optional(),

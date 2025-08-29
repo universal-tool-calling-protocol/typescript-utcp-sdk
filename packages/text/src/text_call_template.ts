@@ -9,7 +9,8 @@ import { CallTemplateBaseSchema } from '@utcp/core/data/call_template';
 export const TextCallTemplateSchema = CallTemplateBaseSchema.extend({
   call_template_type: z.literal('text'),
   file_path: z.string().describe('The path to the file containing the UTCP manual or tool definitions.'),
-  auth: z.null().optional().default(null).describe('Text call templates do not support authentication.'), // Explicitly null for Text
+  // auth: z.null().optional().default(null).describe('Text call templates do not support authentication.'),
+  auth: z.null().optional().default(null),
 });
 
 export type TextCallTemplate = z.infer<typeof TextCallTemplateSchema>;
