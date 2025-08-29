@@ -26,11 +26,10 @@ server.registerTool("add", {
 });
 
 const transportOptions: StreamableHTTPServerTransportOptions = {
-  sessionIdGenerator: () => crypto.randomUUID(), // Provide a session ID generator
+  sessionIdGenerator: () => crypto.randomUUID(),
 };
 const transport = new StreamableHTTPServerTransport(transportOptions);
 
-// FIX: We now create the HTTP server and manually wire it to the transport's handleRequest method.
 const httpServer = http.createServer((req, res) => {
   // Only handle requests to the /mcp path
   if (req.url === "/mcp") {

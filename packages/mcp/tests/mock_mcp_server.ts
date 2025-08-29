@@ -5,7 +5,6 @@ import { z } from "zod";
 
 const server = new McpServer({ name: "mock-stdio-server", version: "1.0.0" });
 
-// CORRECTED: Pass the shape, not the ZodObject instance
 server.registerTool("echo", {
   title: "Echo Tool",
   description: "Echoes back the input message.",
@@ -15,7 +14,6 @@ server.registerTool("echo", {
   return { content: [{ type: "text", text: JSON.stringify(result) }] };
 });
 
-// CORRECTED: Pass the shape, not the ZodObject instance
 server.registerTool("add", {
   title: "Add Tool",
   description: "Adds two numbers.",
