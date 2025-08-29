@@ -16,6 +16,7 @@
     "**/*.spec.ts"
   ],
   "references": [
-    { "path": "../core" }
+    { "path": "../core" },
+    { "path": "../http" } 
   ]
 }

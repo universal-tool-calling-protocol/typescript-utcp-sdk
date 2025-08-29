@@ -1,233 +1,200 @@
-// tests/simple.test.ts (replace existing test file content)
-import { test, expect, beforeAll, beforeEach, afterEach, describe } from "bun:test";
-import { UtcpClient, IUtcpClient } from '@utcp/core';
-import { HttpCallTemplate } from '@utcp/http/http_call_template';
-import { registerHttpPlugin } from '@utcp/http';
-import { CommunicationProtocol, RegisterManualResult } from '@utcp/core/interfaces/communication_protocol';
-import { CallTemplateBase } from '@utcp/core/data/call_template';
-import { UtcpManualSchema } from '@utcp/core/data/utcp_manual';
-import { OpenApiConverter } from '@utcp/http/openapi_converter';  
-import { pluginRegistry } from '@utcp/core/plugins/plugin_registry';
+// packages/http/tests/http_communication_protocol.test.ts
+import { test, expect, describe, beforeAll, afterAll } from "bun:test";
+import express, { Express } from 'express';
+import { Server } from 'http';
+import { HttpCommunicationProtocol } from "../src/http_communication_protocol";
+import { HttpCallTemplate } from "../src/http_call_template";
+import { ApiKeyAuth, BasicAuth, OAuth2Auth } from "@utcp/core/data/auth";
+import { IUtcpClient } from "@utcp/core/client/utcp_client";
 
-// Mock CommunicationProtocol implementation for testing
-class MockHttpCommunicationProtocol implements CommunicationProtocol {
-  private manualToReturn: RegisterManualResult | null = null;
-  private callToolResult: any = null;
-  private streamingResults: any[] = [];
+// --- Test Server Setup ---
+let app: Express;
+let server: Server;
+let serverPort: number;
 
-  public setManualResponse(manual: any, success: boolean = true, errors: string[] = []): void {
-    const manualCallTemplate: HttpCallTemplate = {
-      name: manual.name || 'mock_manual',
-      call_template_type: 'http',
-      http_method: 'GET',
-      url: 'http://mock.url/manual',
-      content_type: 'application/json'
-    };
-    this.manualToReturn = {
-      manualCallTemplate: manualCallTemplate,
-      manual: UtcpManualSchema.parse(manual),
-      success,
-      errors
-    };
-  }
+const mockClient = {} as IUtcpClient; // Mock client for protocol calls
 
-  public setCallToolResult(result: any): void {
-    this.callToolResult = result;
-  }
+beforeAll(async () => {
+  app = express();
+  app.use(express.json());
 
-  public setCallToolStreamingResults(results: any[]): void {
-    this.streamingResults = results;
-  }
-
-  async registerManual(caller: IUtcpClient, manualCallTemplate: CallTemplateBase): Promise<RegisterManualResult> {
-    if (!this.manualToReturn) {
-      throw new Error('Mock registerManual response not set.');
-    }
-    return {
-        ...this.manualToReturn,
-        manualCallTemplate: manualCallTemplate,
-        manual: {
-            ...this.manualToReturn.manual,
-            tools: this.manualToReturn.manual.tools.map(tool => ({
-                ...tool,
-                tool_call_template: manualCallTemplate
-            }))
+  // Discovery endpoint
+  app.get("/utcp", (req, res) => {
+    res.json({
+      utcp_version: "1.0.1",
+      manual_version: "1.0.0",
+      tools: [{
+        name: "test_tool",
+        description: "A simple test tool",
+        tool_call_template: {
+          name: "test_server",
+          call_template_type: 'http',
+          url: `http://localhost:${serverPort}/tool`,
+          http_method: 'POST',
         }
-    };
-  }
+      }]
+    });
+  });
 
-  async deregisterManual(caller: IUtcpClient, manualCallTemplate: CallTemplateBase): Promise<void> {
-    return Promise.resolve();
-  }
-
-  async callTool(caller: IUtcpClient, toolName: string, toolArgs: Record<string, any>, toolCallTemplate: CallTemplateBase): Promise<any> {
-    return Promise.resolve(this.callToolResult);
-  }
-
-  async *callToolStreaming(caller: IUtcpClient, toolName: string, toolArgs: Record<string, any>, toolCallTemplate: CallTemplateBase): AsyncGenerator<any, void, unknown> {
-    for (const item of this.streamingResults) {
-      yield item;
+  // Tool execution endpoint
+  app.post("/tool", (req, res) => {
+    // Check for API Key
+    if (req.headers['x-api-key'] && req.headers['x-api-key'] !== 'test-key') {
+      return res.status(401).json({ error: "Invalid API Key" });
     }
-  }
+    // Check for Basic Auth
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith("Basic ") && authHeader !== `Basic ${btoa("user:pass")}`) {
+      return res.status(401).json({ error: "Invalid Basic Auth Credentials" });
+    }
+    // Check for OAuth2 Bearer Token
+    if (authHeader?.startsWith("Bearer ") && authHeader !== "Bearer test-token") {
+      return res.status(401).json({ error: "Invalid Bearer Token" });
+    }
 
-  async close(): Promise<void> {
-    return Promise.resolve();
-  }
-}
-
-beforeAll(() => {
-  registerHttpPlugin();
-});
-
-describe('UtcpClient with Mocked HTTP Plugin', () => {
-  let client: UtcpClient;
-  let mockHttpProtocol: MockHttpCommunicationProtocol;
-
-  beforeEach(async () => {
-    mockHttpProtocol = new MockHttpCommunicationProtocol();
-    pluginRegistry.setCommProtocol('http', mockHttpProtocol);
-    
-    client = await UtcpClient.create({});
-  });
-
-  afterEach(async () => {
-    await client.close();
-    // Optionally, reset the pluginRegistry to its original state if other tests expect it
-    // Or simply rely on each test to set its own mocks.
-  });
-
-  test('should register an HTTP manual via mock and call a tool', async () => {
-    const manualName = 'test_http_manual';
-    const toolName = `${manualName}.echo_tool`;
-    
-    // --- Setup Mock Response for Discovery ---
-    const mockUtcpManualContent = {
-      utcp_version: '1.0.1',
-      manual_version: '1.0.0',
-      tools: [
-        {
-          name: 'echo_tool',
-          description: 'Echoes back the input.',
-          inputs: {
-            type: 'object',
-            properties: { message: { type: 'string' } },
-            required: ['message'],
-          },
-          outputs: {
-            type: 'object',
-            properties: { echoed: { type: 'string' } },
-          },
-          tags: ['utility'],
-          // tool_call_template won't matter here since the mock protocol handles the 'callTool' directly
-          tool_call_template: {
-            name: manualName,
-            call_template_type: 'http',
-            http_method: 'POST',
-            url: 'http://mock.url/echo',
-            content_type: 'application/json',
-            body_field: 'body'
-          },
-        },
-      ],
-    };
-    mockHttpProtocol.setManualResponse(mockUtcpManualContent);
-    
-    // --- Register the manual ---
-    const httpManualCallTemplate: HttpCallTemplate = {
-      name: manualName,
-      call_template_type: 'http',
-      http_method: 'GET',
-      url: 'http://mock.url/manual',
-      content_type: 'application/json'
-    };
-
-    const registerResult = await client.registerManual(httpManualCallTemplate);
-
-    expect(registerResult.success).toBeTrue();
-    expect(registerResult.manual.tools).toHaveLength(1);
-    expect(registerResult.manual.tools[0]?.name).toBe(toolName);
-
-    // --- Setup Mock Response for Tool Execution ---
-    const expectedMessage = 'Hello UTCP!';
-    const expectedResponse = { echoed: expectedMessage };
-    mockHttpProtocol.setCallToolResult(expectedResponse);
-
-    // --- Call the tool ---
-    const toolArguments = { body: { message: expectedMessage } };
-    const result = await client.callTool(toolName, toolArguments);
-
-    expect(result).toEqual(expectedResponse);
+    res.json({ result: "success", received_body: req.body });
   });
   
-  test('should register an HTTP manual from an OpenAPI spec via mock', async () => {
-    const manualName = 'openapi_manual';
-    const toolName = `${manualName}.list_pets`; 
-    
-    // --- Setup Mock OpenAPI Spec Content ---
-    const mockOpenApiSpecContent = {
-      openapi: '3.0.0',
-      info: { title: 'Pet Store API', version: '1.0.0' },
-      paths: {
-        '/pets': {
-          get: {
-            operationId: 'list_pets',
-            summary: 'List all pets',
-            responses: {
-              '200': {
-                description: 'A list of pets',
-                content: {
-                  'application/json': {
-                    schema: {
-                      type: 'array',
-                      items: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' } } },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    };
+  // Path parameter endpoint
+  app.get("/tool/:param1/:param2", (req, res) => {
+      res.json({ result: "path_success", params: req.params, query: req.query });
+  });
 
-    // --- IMPORTANT: Manually convert the OpenAPI spec to a UTCP Manual for the mock ---
-    // This simulates what the *real* HttpCommunicationProtocol's registerManual would do internally
-    // when it detects an OpenAPI spec.
-    const converter = new (await import('@utcp/http/openapi_converter.js')).OpenApiConverter(mockOpenApiSpecContent, {
-        specUrl: 'http://mock.url/openapi-spec',
-        callTemplateName: manualName
+  // OAuth2 Token Endpoint
+  app.post("/token", (req, res) => {
+    res.json({ access_token: "test-token", expires_in: 3600 });
+  });
+
+  // Error endpoint
+  app.get("/error", (req, res) => {
+    res.status(500).json({ error: "Internal Server Error" });
+  });
+
+  await new Promise<void>((resolve) => {
+    server = app.listen(0, () => {
+      serverPort = (server.address() as any).port;
+      console.log(`HTTP test server running on port ${serverPort}`);
+      resolve();
     });
-    const convertedManual = converter.convert();
-    
-    // --- Setup Mock Response for Discovery with the converted manual ---
-    mockHttpProtocol.setManualResponse({
-        ...convertedManual,
-        name: manualName, // Ensure manual name is set for consistency
+  });
+});
+
+afterAll(() => {
+  return new Promise<void>((resolve) => {
+    server.close(() => {
+      console.log("HTTP test server stopped.");
+      resolve();
+    });
+  });
+});
+
+
+// --- Test Suite ---
+describe("HttpCommunicationProtocol", () => {
+  const protocol = new HttpCommunicationProtocol();
+
+  describe("registerManual", () => {
+    test("should discover tools from a valid UTCP manual endpoint", async () => {
+      const callTemplate: HttpCallTemplate = {
+        name: "test_server",
+        call_template_type: "http",
+        url: `http://localhost:${serverPort}/utcp`,
+        http_method: "GET",
+      };
+
+      const result = await protocol.registerManual(mockClient, callTemplate);
+      expect(result.success).toBe(true);
+      expect(result.manual.tools).toHaveLength(1);
+      expect(result.manual.tools[0]?.name).toBe("test_tool");
     });
 
-    // --- Register the manual (OpenAPI spec) ---
-    const openApiManualCallTemplate: HttpCallTemplate = {
-      name: manualName,
-      call_template_type: 'http',
-      http_method: 'GET',
-      url: 'http://mock.url/openapi-spec',
-      content_type: 'application/json'
-    };
+    test("should handle server errors during discovery", async () => {
+      const callTemplate: HttpCallTemplate = {
+        name: "error_server",
+        call_template_type: "http",
+        url: `http://localhost:${serverPort}/error`,
+        http_method: "GET",
+      };
 
-    const registerResult = await client.registerManual(openApiManualCallTemplate);
+      const result = await protocol.registerManual(mockClient, callTemplate);
+      expect(result.success).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+    });
+  });
 
-    expect(registerResult.success).toBeTrue();
-    expect(registerResult.manual.tools).toHaveLength(1);
-    expect(registerResult.manual.tools[0]?.name).toBe(toolName);
-    expect(registerResult.manual.tools[0]?.description).toBe('List all pets');
+  describe("callTool", () => {
+    test("should execute a POST tool with a body", async () => {
+      const callTemplate: HttpCallTemplate = {
+        name: "test_server",
+        call_template_type: "http",
+        url: `http://localhost:${serverPort}/tool`,
+        http_method: "POST",
+        body_field: "data"
+      };
+
+      const result = await protocol.callTool(mockClient, "test.tool", { data: { value: 123 } }, callTemplate);
+      expect(result).toEqual({ result: "success", received_body: { value: 123 } });
+    });
+
+    test("should correctly handle path and query parameters", async () => {
+        const callTemplate: HttpCallTemplate = {
+            name: "path_test",
+            call_template_type: "http",
+            url: `http://localhost:${serverPort}/tool/{param1}/{param2}`,
+            http_method: "GET",
+        };
+
+        const result = await protocol.callTool(
+            mockClient, 
+            "test.tool", 
+            { param1: "foo", param2: "bar", query1: "baz" }, 
+            callTemplate
+        );
+        expect(result).toEqual({ result: "path_success", params: {param1: "foo", param2: "bar"}, query: {query1: "baz"} });
+    });
     
-    // --- Setup Mock Response for Tool Execution ---
-    const expectedPetsResponse = [{ id: 1, name: 'Fido' }, { id: 2, name: 'Whiskers' }];
-    mockHttpProtocol.setCallToolResult(expectedPetsResponse);
-
-    // --- Call the OpenAPI-derived tool ---
-    const result = await client.callTool(toolName, {});
+    test("should handle ApiKeyAuth in headers", async () => {
+        const auth: ApiKeyAuth = { auth_type: 'api_key', api_key: 'test-key', var_name: 'X-Api-Key', location: 'header' };
+        const callTemplate: HttpCallTemplate = {
+            name: "test_server",
+            call_template_type: "http",
+            url: `http://localhost:${serverPort}/tool`,
+            http_method: "POST",
+            auth: auth
+        };
+        const result = await protocol.callTool(mockClient, "test.tool", {}, callTemplate);
+        expect(result.result).toBe("success");
+    });
     
-    expect(result).toEqual(expectedPetsResponse);
+    test("should handle BasicAuth", async () => {
+        const auth: BasicAuth = { auth_type: 'basic', username: 'user', password: 'pass' };
+        const callTemplate: HttpCallTemplate = {
+            name: "test_server",
+            call_template_type: "http",
+            url: `http://localhost:${serverPort}/tool`,
+            http_method: "POST",
+            auth: auth
+        };
+        const result = await protocol.callTool(mockClient, "test.tool", {}, callTemplate);
+        expect(result.result).toBe("success");
+    });
+
+    test("should handle OAuth2Auth", async () => {
+        const auth: OAuth2Auth = {
+            auth_type: 'oauth2',
+            token_url: `http://localhost:${serverPort}/token`,
+            client_id: 'test-client',
+            client_secret: 'test-secret',
+        };
+        const callTemplate: HttpCallTemplate = {
+            name: "test_server",
+            call_template_type: "http",
+            url: `http://localhost:${serverPort}/tool`,
+            http_method: "POST",
+            auth: auth
+        };
+        const result = await protocol.callTool(mockClient, "test.tool", {}, callTemplate);
+        expect(result.result).toBe("success");
+    });
   });
 });
