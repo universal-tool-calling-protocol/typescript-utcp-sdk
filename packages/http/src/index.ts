@@ -2,6 +2,7 @@
 import { pluginRegistry } from '@utcp/core';
 import { HttpCallTemplateSchema } from '@utcp/http/http_call_template';
 import { HttpCommunicationProtocol } from '@utcp/http/http_communication_protocol'; 
+import { OpenApiConverter } from '@utcp/http/openapi_converter';
 
 /**
  * This function registers the HTTP protocol's CallTemplate schema

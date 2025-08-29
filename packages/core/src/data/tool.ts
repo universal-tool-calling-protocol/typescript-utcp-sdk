@@ -63,7 +63,6 @@ export const JsonSchemaZodSchema: z.ZodType<JsonSchema> = z.lazy(() => z.object(
     z.literal('string'), z.literal('number'), z.literal('integer'), z.literal('boolean'),
     z.literal('object'), z.literal('array'), z.literal('null'), z.array(z.string())
   ]).optional(),
-  // All recursive references inside the object use z.lazy(() => JsonSchemaZodSchema)
   properties: z.record(z.string(), z.lazy(() => JsonSchemaZodSchema)).optional(),
   items: z.union([z.lazy(() => JsonSchemaZodSchema), z.array(z.lazy(() => JsonSchemaZodSchema))]).optional(),
   required: z.array(z.string()).optional(),
