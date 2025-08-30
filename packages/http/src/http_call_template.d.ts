@@ -67,6 +67,7 @@ export declare const HttpCallTemplateSchema: z.ZodObject<{
     content_type: string;
     body_field: string;
     timeout: number;
+    name?: string | undefined;
     auth?: {
         auth_type: "api_key";
         api_key: string;
@@ -85,12 +86,10 @@ export declare const HttpCallTemplateSchema: z.ZodObject<{
     } | undefined;
     headers?: Record<string, string> | undefined;
     header_fields?: string[] | undefined;
-    name?: string | undefined;
 }, {
     call_template_type: "http";
     url: string;
-    http_method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | undefined;
-    content_type?: string | undefined;
+    name?: string | undefined;
     auth?: {
         auth_type: "api_key";
         api_key: string;
@@ -107,10 +106,11 @@ export declare const HttpCallTemplateSchema: z.ZodObject<{
         client_secret: string;
         scope?: string | undefined;
     } | undefined;
+    http_method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | undefined;
+    content_type?: string | undefined;
     headers?: Record<string, string> | undefined;
     body_field?: string | undefined;
     header_fields?: string[] | undefined;
     timeout?: number | undefined;
-    name?: string | undefined;
 }>;
 export type HttpCallTemplate = z.infer<typeof HttpCallTemplateSchema>;

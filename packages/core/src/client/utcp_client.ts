@@ -21,7 +21,7 @@ export interface IUtcpClient {
   readonly config: UtcpClientConfig;
   readonly toolRepository: ToolRepository;
   readonly searchStrategy: ToolSearchStrategy;
-  
+
   substituteCallTemplateVariables<T extends CallTemplateBase>(callTemplate: T, namespace?: string): Promise<T>;
   // Potentially: log(message: string, isError?: boolean): void;
 }
@@ -56,7 +56,7 @@ export class UtcpClient implements IUtcpClient {
     const client = new UtcpClient(validatedConfig, toolRepository, searchStrategy);
 
     await client.loadVariables();
-    
+
     // Substitute variables in the initial config's 'variables' field itself
     const tempConfigWithoutOwnVars: UtcpClientConfig = { ...client.config, variables: {} };
     client.config.variables = await client._replaceVarsInObj(client.config.variables, tempConfigWithoutOwnVars);
@@ -173,7 +173,7 @@ export class UtcpClient implements IUtcpClient {
     if (!tool) {
       throw new Error(`Tool '${toolName}' not found in the repository.`);
     }
-    
+
     const processedToolCallTemplate = await this.substituteCallTemplateVariables(tool.tool_call_template, manualName);
 
     const protocol = this._registeredCommProtocols.get(processedToolCallTemplate.call_template_type);
@@ -193,21 +193,27 @@ export class UtcpClient implements IUtcpClient {
   }
 
   public async substituteCallTemplateVariables<T extends CallTemplateBase>(callTemplate: T, namespace?: string): Promise<T> {
-    const specificCallTemplateSchema = pluginRegistry.getCallTemplateUnionSchema();
-    if (!specificCallTemplateSchema) {
-      console.warn(`No specific CallTemplate schema registered for type '${callTemplate.call_template_type}'. ` +
-                   `Falling back to base schema for variable substitution validation.`);
-      const rawSubstituted = await this._replaceVarsInObj(callTemplate, this.config, namespace);
+    // CHANGE: Use the correct method name to get the combined union schema.
+    const unionSchema = pluginRegistry.getCallTemplateUnionSchema();
+
+    const rawSubstituted = await this._replaceVarsInObj(callTemplate, this.config, namespace);
+
+    // Now, parse against the union. Zod will use the 'call_template_type'
+    // discriminator to pick the correct schema automatically.
+    const result = unionSchema.safeParse(rawSubstituted);
+
+    if (!result.success) {
+      console.error(`Zod validation failed for call template '${callTemplate.name}' after variable substitution. This may happen if a plugin schema is not correctly registered. Falling back to base schema.`, result.error.issues);
+      // Fallback to the base schema to at least return a valid base object
       return CallTemplateBaseSchema.parse(rawSubstituted) as T;
     }
 
-    const rawSubstituted = await this._replaceVarsInObj(callTemplate, this.config, namespace);
-    return specificCallTemplateSchema.parse(rawSubstituted) as T;
+    return result.data as T;
   }
 
   private async loadVariables(): Promise<void> {
     for (const varLoader of this.config.load_variables_from || []) {
-      if (varLoader.type === 'dotenv') {
+      if (varLoader.variable_loader_type === 'dotenv') {
         try {
           const envFilePath = path.resolve(this._rootPath, varLoader.env_file_path);
           const envContent = await fs.readFile(envFilePath, 'utf-8');
@@ -236,7 +242,7 @@ export class UtcpClient implements IUtcpClient {
         if (namespace) {
           effectiveVarName = `${namespace.replace(/_/g, '__')}__${varNameInTemplate}`;
         }
-        
+
         try {
           if (config.variables && config.variables[effectiveVarName]) {
             result = result.replace(match[0], config.variables[effectiveVarName]!);
@@ -245,23 +251,23 @@ export class UtcpClient implements IUtcpClient {
           }
           else if (process.env[effectiveVarName]) {
             result = result.replace(match[0], process.env[effectiveVarName]!);
-          } else if (process.env[varNameInTemplate]) { 
+          } else if (process.env[varNameInTemplate]) {
             result = result.replace(match[0], process.env[varNameInTemplate]!);
           }
           else {
             let foundInLoader = false;
             if (config.load_variables_from) {
               for (const loaderConfig of config.load_variables_from) {
-                if (loaderConfig.type === 'dotenv') {
+                if (loaderConfig.variable_loader_type === 'dotenv') {
                   const envFilePath = path.resolve(this._rootPath, loaderConfig.env_file_path);
                   const envContent = await fs.readFile(envFilePath, 'utf-8');
                   const envVars = parseDotEnv(envContent);
-                  
+
                   if (envVars[effectiveVarName]) {
                     result = result.replace(match[0], envVars[effectiveVarName]!);
                     foundInLoader = true;
                     break;
-                  } else if (envVars[varNameInTemplate]) { 
+                  } else if (envVars[varNameInTemplate]) {
                     result = result.replace(match[0], envVars[varNameInTemplate]!);
                     foundInLoader = true;
                     break;

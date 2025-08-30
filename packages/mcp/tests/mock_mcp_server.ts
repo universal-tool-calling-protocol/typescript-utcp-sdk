@@ -7,7 +7,7 @@ const server = new McpServer({ name: "mock-stdio-server", version: "1.0.0" });
 
 server.registerTool("echo", {
   title: "Echo Tool",
-  description: "Echoes back the input message.",
+  description: "Echoes back the input message. Useful for testing connectivity.",
   inputSchema: { message: z.string() },
 }, async (input) => {
   const result = { reply: `you said: ${input.message}` };
@@ -16,7 +16,7 @@ server.registerTool("echo", {
 
 server.registerTool("add", {
   title: "Add Tool",
-  description: "Adds two numbers.",
+  description: "Adds two numbers together. A basic arithmetic operation.",
   inputSchema: { a: z.number(), b: z.number() },
 }, async (input) => {
   const result = input.a + input.b;
@@ -27,4 +27,4 @@ const transport = new StdioServerTransport();
 (async () => {
   await server.connect(transport);
   console.log("Mock STDIN MCP Server is running.");
-})();
+})(); 

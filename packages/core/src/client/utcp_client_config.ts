@@ -1,5 +1,6 @@
 // packages/core/src/client/utcp_client_config.ts
 import { z } from 'zod';
+import { pluginRegistry } from '@utcp/core/plugins/plugin_registry';
 import { CallTemplateBaseSchema } from '@utcp/core/data/call_template';
 
 /**
@@ -20,7 +21,7 @@ export class UtcpVariableNotFoundError extends Error {
 
 // Schema for the dotenv variable source
 export const UtcpDotEnvLoaderSchema = z.object({
-  type: z.literal('dotenv'),
+  variable_loader_type: z.literal('dotenv'),
   env_file_path: z.string().describe('Path to the .env file to load variables from.'),
 });
 export type UtcpDotEnvLoader = z.infer<typeof UtcpDotEnvLoaderSchema>;
@@ -29,11 +30,11 @@ export type UtcpDotEnvLoader = z.infer<typeof UtcpDotEnvLoaderSchema>;
  * A discriminated union of all supported variable loader types.
  * This allows for loading variables from different external sources.
  */
-export const VariableLoaderSchema = z.discriminatedUnion('type', [
+export const VariableLoaderSchema = z.discriminatedUnion('variable_loader_type', [
   UtcpDotEnvLoaderSchema,
-  // Future variable loader types (e.g., 'vault', 'aws_secrets_manager') can be added here.
 ]);
 export type VariableLoader = z.infer<typeof VariableLoaderSchema>;
+
 
 /**
  * The main configuration schema for the UTCP client.
@@ -45,7 +46,7 @@ export const UtcpClientConfigSchema = z.object({
    * A dictionary of directly-defined variables for substitution.
    * These take highest precedence.
    */
-  variables: z.record(z.string(), z.string()).optional().default({}), // FIX: Added z.string() for key type
+  variables: z.record(z.string(), z.string()).optional().default({}),
   /**
    * A list of variable loader configurations for loading variables from external
    * sources like .env files. Loaders are processed in order.
@@ -55,6 +56,9 @@ export const UtcpClientConfigSchema = z.object({
    * A list of manually defined call templates for registering tools.
    * These are directly embedded in the client's configuration.
    */
+  // manual_call_templates: z.lazy(() => 
+  //   z.array(pluginRegistry.getCallTemplateUnionSchema())
+  // ).optional().default([]),
   manual_call_templates: z.array(CallTemplateBaseSchema).optional().default([]),
   // Future fields like toolRepositoryConfig, toolSearchStrategyConfig, postProcessingConfig
   // will be added here once their interfaces/implementations are defined.

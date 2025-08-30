@@ -9,7 +9,7 @@ const server = new McpServer({ name: "mock-http-server", version: "1.0.0" });
 
 server.registerTool("echo", {
   title: "Echo Tool",
-  description: "Echoes back the input message.",
+  description: "Echoes back the input message. Useful for testing HTTP connectivity.",
   inputSchema: { message: z.string() },
 }, async (input) => {
   const result = { reply: `you said: ${input.message}` };
@@ -18,7 +18,7 @@ server.registerTool("echo", {
 
 server.registerTool("add", {
   title: "Add Tool",
-  description: "Adds two numbers.",
+  description: "Adds two numbers together via HTTP. A basic arithmetic operation.",
   inputSchema: { a: z.number(), b: z.number() },
 }, async (input) => {
   const result = input.a + input.b;
@@ -31,7 +31,6 @@ const transportOptions: StreamableHTTPServerTransportOptions = {
 const transport = new StreamableHTTPServerTransport(transportOptions);
 
 const httpServer = http.createServer((req, res) => {
-  // Only handle requests to the /mcp path
   if (req.url === "/mcp") {
       transport.handleRequest(req, res);
   } else {

@@ -9,8 +9,9 @@ import { CallTemplateBase } from '@utcp/core/data/call_template';
 import { UtcpManualSchema } from '@utcp/core/data/utcp_manual';
 import { OAuth2Auth } from '@utcp/core/data/auth';
 import { IUtcpClient } from '@utcp/core/client/utcp_client';
-import { McpCallTemplate, McpCallTemplateSchema, McpStdioServerSchema, McpHttpServer, McpHttpServerSchema,McpStdioServer, McpServerConfig } from '@utcp/mcp/mcp_call_template';
-import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'; 
+import { McpCallTemplateSchema, McpHttpServer,McpStdioServer, McpServerConfig } from '@utcp/mcp/mcp_call_template';
+import { JsonSchema } from '@utcp/core/src/data/tool';
+import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 /**
  * MCP communication protocol implementation.
@@ -74,6 +75,7 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
       throw new Error(`Failed to fetch OAuth2 token for client '${clientId}': ${errorMessages}`);
     }
   }
+  
   private async _getOrCreateHttpClient(serverConfig: McpHttpServer, auth?: OAuth2Auth): Promise<McpClient> {
     const cacheKey = serverConfig.url;
     if (this._httpMcpClientCache.has(cacheKey)) {
@@ -106,59 +108,131 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
     operation: (client: McpClient) => Promise<T>
   ): Promise<T> {
     let mcpClient: McpClient | undefined;
+    let transport: Transport | undefined;
     let closeClientAfter = false;
 
     try {
       if (serverConfig.transport === 'stdio') {
-        const stdioConfig = serverConfig as McpStdioServer; // Cast for type safety
-        const transport = new StdioClientTransport({ command: stdioConfig.command, args: stdioConfig.args, cwd: stdioConfig.cwd, env: stdioConfig.env });
+        const stdioConfig = serverConfig;
+
+        // --- FINAL FIX: Use a shell to execute the command ---
+        const isWindows = process.platform === "win32";
+        
+        // Combine command and args into a single string for the shell
+        const commandString = [stdioConfig.command, ...(stdioConfig.args || [])]
+          .map(part => part.includes(' ') ? `"${part}"` : part) // Quote parts with spaces
+          .join(' ');
+
+        this._logInfo(`Executing shell command: ${commandString}`);
+
+        const combinedEnv: Record<string, string> = {};
+        for (const key in process.env) {
+          if (process.env[key] !== undefined) {
+            combinedEnv[key] = process.env[key]!;
+          }
+        }
+        for (const key in (stdioConfig.env || {})) {
+          if (stdioConfig.env[key] !== undefined) {
+            combinedEnv[key] = stdioConfig.env[key]!;
+          }
+        }
+
+        transport = new StdioClientTransport({
+          command: isWindows ? 'cmd.exe' : '/bin/sh',
+          args: isWindows ? ['/c', commandString] : ['-c', commandString],
+          cwd: stdioConfig.cwd,
+          env: combinedEnv // Use the filtered environment object
+        });
+
         mcpClient = new McpClient({ name: 'utcp-mcp-stdio-client', version: '1.0.1' });
         await mcpClient.connect(transport);
         closeClientAfter = true;
       } else if (serverConfig.transport === 'http') {
-        const httpConfig = serverConfig as McpHttpServer; // Cast for type safety
+        const httpConfig = serverConfig;
         mcpClient = await this._getOrCreateHttpClient(httpConfig, auth);
         closeClientAfter = false;
       } else {
-        const unknownTransport = (serverConfig as any).transport;
-        throw new Error(`Unsupported MCP transport: '${unknownTransport}'`);
+        throw new Error(`Unsupported MCP transport: '${(serverConfig as any).transport}'`);
       }
 
       const result = await Promise.race([
         operation(mcpClient),
-        new Promise<T>((_, reject) => setTimeout(() => reject(new Error("MCP operation timed out")), 4500))
-    ]);
-    return result;
-  } finally {
-    if (mcpClient && closeClientAfter) {
-      await mcpClient.close();
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error("MCP operation timed out")), 6000)) // Slightly longer timeout
+      ]);
+      return result;
+    } finally {
+      if (mcpClient && closeClientAfter) {
+        await mcpClient.close();
+      }
     }
   }
-}
 
   /**
-   * Registers an MCP manual. This is a passthrough operation that validates the
-   * CallTemplate. It does not discover tools from the server; it trusts the UTCP manual
-   * being registered as the source of truth.
-   */ 
+   * Registers an MCP manual by connecting to the first configured server,
+   * discovering its tools, and converting them to the UTCP Tool format.
+   */
   public async registerManual(caller: IUtcpClient, manualCallTemplate: CallTemplateBase): Promise<RegisterManualResult> {
-    this._logInfo(`Validating MCP manual call template '${manualCallTemplate.name}'.`);
-    try {
-      const mcpCallTemplate = McpCallTemplateSchema.parse(manualCallTemplate);
+    this._logInfo(`Registering MCP manual '${manualCallTemplate.name}' by discovering tools.`);
+    const mcpCallTemplate = McpCallTemplateSchema.parse(manualCallTemplate);
+
+    if (!mcpCallTemplate.config?.mcpServers || Object.keys(mcpCallTemplate.config.mcpServers).length === 0) {
+      const errorMsg = "MCP call template has no servers configured.";
+      this._logError(errorMsg);
       return {
         manualCallTemplate: mcpCallTemplate,
-        manual: UtcpManualSchema.parse({ tools: [] }), 
+        manual: UtcpManualSchema.parse({ tools: [] }),
+        success: false,
+        errors: [errorMsg],
+      };
+    }
+
+    // For simplicity, we'll discover tools from the *first* configured server.
+    // A more complex implementation could merge tools from all servers.
+    const [serverName, serverConfig] = Object.entries(mcpCallTemplate.config.mcpServers)[0]!;
+
+    try {
+      this._logInfo(`Discovering tools from MCP server '${serverName}'...`);
+      const mcpTools = await this._withMcpClient(serverConfig, mcpCallTemplate.auth,
+        (client) => client.listTools()
+      );
+
+      // Convert MCP Tools to UTCP Tools
+      const utcpTools = mcpTools.tools.map(mcpTool => {
+        const toolSpecificMcpCallTemplate = McpCallTemplateSchema.parse({
+          name: mcpCallTemplate.name,
+          call_template_type: mcpCallTemplate.call_template_type,
+          config: mcpCallTemplate.config,
+          auth: mcpCallTemplate.auth,
+        });
+
+
+        return {
+          name: mcpTool.name,
+          description: mcpTool.description || '',
+          inputs: mcpTool.inputSchema as JsonSchema,
+          outputs: mcpTool.outputSchema as JsonSchema,
+          tags: [],
+          tool_call_template: toolSpecificMcpCallTemplate,
+        };
+      });
+
+      this._logInfo(`Discovered ${utcpTools.length} tools from server '${serverName}'.`);
+
+      return {
+        manualCallTemplate: mcpCallTemplate,
+        manual: UtcpManualSchema.parse({ tools: utcpTools }),
         success: true,
         errors: [],
       };
-    } catch(e: any) {
-        this._logError(`Invalid MCP call template for '${manualCallTemplate.name}':`, e);
-        return {
-            manualCallTemplate: manualCallTemplate,
-            manual: UtcpManualSchema.parse({ tools: [] }),
-            success: false,
-            errors: [e.message],
-        };
+
+    } catch (e: any) {
+      this._logError(`Failed to discover tools from MCP server '${serverName}':`, e);
+      return {
+        manualCallTemplate: mcpCallTemplate,
+        manual: UtcpManualSchema.parse({ tools: [] }),
+        success: false,
+        errors: [e.message],
+      };
     }
   }
 
@@ -189,15 +263,12 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
    */
   private _parseTextContent(text: string): any {
     try {
-      // Try to parse as JSON first
       return JSON.parse(text);
     } catch {
-      // If it fails, check if it's a number
       const num = Number(text);
       if (!isNaN(num) && isFinite(num)) {
           return num;
       }
-      // Otherwise, return the original string
       return text;
     }
   }

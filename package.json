@@ -16,7 +16,7 @@
     "zod": "^3.23.8"
   },
   "scripts": {
-    "build": "bun tsc --build packages/core packages/http packages/text packages/mcp",
+    "build": "bun tsc --build packages/core packages/http packages/text packages/mcp examples/mcp-utcp-bridge",
     "test": "bun test --config tsconfig.test.json"
   },
   "workspaces": [

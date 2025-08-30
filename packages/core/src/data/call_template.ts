@@ -11,7 +11,7 @@ export const CallTemplateBaseSchema = z.object({
   call_template_type: z.string()
     .describe('The transport protocol type used by this call template.'),
   auth: AuthSchema.optional(),
-});
+}).passthrough();
 export type CallTemplateBase = z.infer<typeof CallTemplateBaseSchema>;
 
 // Note: A final discriminated union for CallTemplate (ProviderUnion equivalent)
