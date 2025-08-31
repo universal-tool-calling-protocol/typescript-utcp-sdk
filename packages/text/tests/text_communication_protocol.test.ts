@@ -7,27 +7,18 @@ import { TextCallTemplate } from "../src/text_call_template";
 import { IUtcpClient } from "@utcp/core/client/utcp_client";
 import { CallTemplateBase } from "@utcp/core";
 
-// A list to keep track of temporary files to clean up after tests
 const tempFiles: string[] = [];
+const mockClient = {} as IUtcpClient;
 
-// Mock UtcpClient for testing purposes
-const mockClient = {
-  // The client doesn't need a real config for these tests, just the interface
-} as IUtcpClient;
-
-// Cleanup temporary files after each test
 afterEach(async () => {
   for (const file of tempFiles) {
     try {
       await unlink(file);
-    } catch (e) {
-      // Ignore errors if file doesn't exist
-    }
+    } catch (e) { }
   }
-  tempFiles.length = 0; // Clear the array
+  tempFiles.length = 0;
 });
 
-// Helper to create a temporary file with content
 const createTempFile = async (fileName: string, content: string): Promise<string> => {
   const filePath = path.join(import.meta.dir, fileName);
   await writeFile(filePath, content, 'utf-8');
@@ -138,7 +129,7 @@ describe("TextCommunicationProtocol", () => {
       const callTemplate: CallTemplateBase = {
         name: "file_content_tool",
         call_template_type: 'text',
-        file_path: filePath // This property is specific to TextCallTemplate
+        file_path: filePath
       } as TextCallTemplate;
 
       const result = await protocol.callTool(mockClient, "any.tool", {}, callTemplate);
@@ -151,9 +142,9 @@ describe("TextCommunicationProtocol", () => {
         call_template_type: 'text',
         file_path: "/path/to/nonexistent/file.txt"
       } as TextCallTemplate;
-      
-    const action = async () => await protocol.callTool(mockClient, "any.tool", {}, callTemplate);
-    await expect(action()).rejects.toThrow(/no such file or directory/);
+
+      const action = async () => await protocol.callTool(mockClient, "any.tool", {}, callTemplate);
+      await expect(action()).rejects.toThrow(/no such file or directory/);
     });
   });
 
@@ -168,12 +159,12 @@ describe("TextCommunicationProtocol", () => {
       } as TextCallTemplate;
 
       const stream = protocol.callToolStreaming(mockClient, "any.tool", {}, callTemplate);
-      
+
       const chunks = [];
       for await (const chunk of stream) {
         chunks.push(chunk);
       }
-      
+
       expect(chunks).toHaveLength(1);
       expect(chunks[0]).toBe(fileContent);
     });

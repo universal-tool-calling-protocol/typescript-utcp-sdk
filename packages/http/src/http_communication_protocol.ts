@@ -51,7 +51,6 @@ export class HttpCommunicationProtocol implements CommunicationProtocol {
     try {
       const url = httpCallTemplate.url;
 
-      // Security check: Enforce HTTPS or localhost to prevent MITM attacks
       if (!url.startsWith('https://') && !url.startsWith('http://localhost') && !url.startsWith('http://127.0.0.1')) {
         throw new Error(
           `Security error: URL must use HTTPS or start with 'http://localhost' or 'http://127.0.0.1'. Got: ${url}. ` +
@@ -62,7 +61,7 @@ export class HttpCommunicationProtocol implements CommunicationProtocol {
       this._logInfo(`Discovering tools from '${httpCallTemplate.name}' (HTTP) at ${url}`);
 
       const requestConfig: AxiosRequestConfig = {
-        method: httpCallTemplate.http_method as Method, 
+        method: httpCallTemplate.http_method as Method,
         url: url,
         headers: { ...httpCallTemplate.headers },
         params: {},
@@ -71,12 +70,8 @@ export class HttpCommunicationProtocol implements CommunicationProtocol {
         timeout: 10000
       };
 
-      // Apply authentication
       await this._applyAuthToRequestConfig(httpCallTemplate, requestConfig);
-
       const response = await this._axiosInstance.request(requestConfig);
-
-      // Parse response based on content type
       const contentType = response.headers['content-type'] || '';
       let responseData: any;
 
@@ -101,7 +96,6 @@ export class HttpCommunicationProtocol implements CommunicationProtocol {
         throw new Error("Response is neither a valid UTCP Manual nor an OpenAPI Specification.");
       }
 
-      // Explicitly iterate over tools to indicate `Tool` is being used
       const toolsInManual: Tool[] = utcpManual.tools;
       if (toolsInManual.length > 0) {
         this._logInfo(`Found ${toolsInManual.length} tools.`);
@@ -287,7 +281,6 @@ export class HttpCommunicationProtocol implements CommunicationProtocol {
     }
 
     this._logInfo(`Fetching new OAuth2 token for client: '${clientId}'`);
-
     const tokenFetchPromises: Promise<string>[] = [];
 
     // Method 1: Send credentials in the request body
@@ -351,9 +344,6 @@ export class HttpCommunicationProtocol implements CommunicationProtocol {
 
     // Try both methods, and resolve if any succeed
     try {
-      // Promise.any is still not universally supported in all environments/Node.js versions yet.
-      // For broader compatibility, you might simulate it or use a library.
-      // For this context, assuming a modern Bun/Node environment that supports it.
       return await Promise.any(tokenFetchPromises);
     } catch (aggregateError: any) {
       const errorMessages = aggregateError.errors ? aggregateError.errors.map((e: Error) => e.message).join('; ') : String(aggregateError);

@@ -2,13 +2,7 @@
 import { CallTemplateBase } from '@utcp/core/data/call_template';
 import { UtcpManual } from '@utcp/core/data/utcp_manual';
 
-// Forward declare UtcpClient to avoid circular dependency for TYPE_CHECKING
-// In TypeScript, interfaces are structural, so a simple reference is often enough,
-// but for explicit type hints that might involve methods of UtcpClient,
-// a forward declaration or a separate type might be useful.
-// For now, we'll keep it simple and assume UtcpClient will be known in implementations.
-// More advanced patterns might involve using 'this' type or a generic.
-interface UtcpClient { /* Minimal interface if needed, or omit and rely on concrete imports in implementations */ }
+interface UtcpClient { }
 
 
 /**
@@ -16,7 +10,7 @@ interface UtcpClient { /* Minimal interface if needed, or omit and rely on concr
  */
 export interface RegisterManualResult {
   manualCallTemplate: CallTemplateBase;
-  manual: UtcpManual; // Simplified: only the tools are strictly needed from the manual for registration result
+  manual: UtcpManual;
   success: boolean;
   errors: string[];
 }

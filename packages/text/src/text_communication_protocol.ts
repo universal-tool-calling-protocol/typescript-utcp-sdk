@@ -6,7 +6,7 @@ import { CommunicationProtocol, RegisterManualResult } from '@utcp/core/interfac
 import { CallTemplateBase } from '@utcp/core/data/call_template';
 import { UtcpManual, UtcpManualSchema } from '@utcp/core/data/utcp_manual';
 import { IUtcpClient } from '@utcp/core/client/utcp_client';
-import { OpenApiConverter } from '@utcp/http/openapi_converter'; // We reuse the converter from the http package
+import { OpenApiConverter } from '@utcp/http/openapi_converter';
 import { TextCallTemplate, TextCallTemplateSchema } from '@utcp/text/text_call_template';
 
 /**
@@ -53,7 +53,7 @@ export class TextCommunicationProtocol implements CommunicationProtocol {
         this._logInfo(`Parsing as UTCP manual: '${filePath}'.`);
         utcpManual = UtcpManualSchema.parse(data);
       }
-      
+
       this._logInfo(`Loaded ${utcpManual.tools.length} tools from '${filePath}'`);
       return {
         manualCallTemplate: textCallTemplate,

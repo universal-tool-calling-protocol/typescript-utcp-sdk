@@ -1,7 +1,7 @@
 // packages/core/src/interfaces/tool_repository.ts
 import { CallTemplateBase } from '@utcp/core/data/call_template';
 import { Tool } from '@utcp/core/data/tool';
-import { UtcpManual } from '@utcp/core/data/utcp_manual'; // Added UtcpManual for getManual method
+import { UtcpManual } from '@utcp/core/data/utcp_manual';
 
 /**
  * Defines the contract for tool repositories that store and manage UTCP tools

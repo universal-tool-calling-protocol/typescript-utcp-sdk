@@ -9,7 +9,7 @@ import { CallTemplateBase } from '@utcp/core/data/call_template';
 import { UtcpManualSchema } from '@utcp/core/data/utcp_manual';
 import { OAuth2Auth } from '@utcp/core/data/auth';
 import { IUtcpClient } from '@utcp/core/client/utcp_client';
-import { McpCallTemplateSchema, McpHttpServer,McpStdioServer, McpServerConfig } from '@utcp/mcp/mcp_call_template';
+import { McpCallTemplateSchema, McpHttpServer, McpStdioServer, McpServerConfig } from '@utcp/mcp/mcp_call_template';
 import { JsonSchema } from '@utcp/core/src/data/tool';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
@@ -75,27 +75,27 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
       throw new Error(`Failed to fetch OAuth2 token for client '${clientId}': ${errorMessages}`);
     }
   }
-  
+
   private async _getOrCreateHttpClient(serverConfig: McpHttpServer, auth?: OAuth2Auth): Promise<McpClient> {
     const cacheKey = serverConfig.url;
     if (this._httpMcpClientCache.has(cacheKey)) {
-        return this._httpMcpClientCache.get(cacheKey)!;
+      return this._httpMcpClientCache.get(cacheKey)!;
     }
-  
+
     let authHeader: Record<string, string> = {};
     if (auth) {
-        const token = await this._handleOAuth2(auth);
-        authHeader['Authorization'] = `Bearer ${token}`;
+      const token = await this._handleOAuth2(auth);
+      authHeader['Authorization'] = `Bearer ${token}`;
     }
-  
+
     const transportOptions: StreamableHTTPClientTransportOptions = {
-        requestInit: { headers: { ...(serverConfig.headers || {}), ...authHeader } }
+      requestInit: { headers: { ...(serverConfig.headers || {}), ...authHeader } }
     };
     const transport = new StreamableHTTPClientTransport(new URL(serverConfig.url), transportOptions);
-  
+
     const mcpClient = new McpClient({ name: 'utcp-mcp-http-client', version: '1.0.1' });
     await mcpClient.connect(transport);
-  
+
     this._httpMcpClientCache.set(cacheKey, mcpClient);
     return mcpClient;
   }
@@ -114,13 +114,9 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
     try {
       if (serverConfig.transport === 'stdio') {
         const stdioConfig = serverConfig;
-
-        // --- FINAL FIX: Use a shell to execute the command ---
         const isWindows = process.platform === "win32";
-        
-        // Combine command and args into a single string for the shell
         const commandString = [stdioConfig.command, ...(stdioConfig.args || [])]
-          .map(part => part.includes(' ') ? `"${part}"` : part) // Quote parts with spaces
+          .map(part => part.includes(' ') ? `"${part}"` : part)
           .join(' ');
 
         this._logInfo(`Executing shell command: ${commandString}`);
@@ -141,7 +137,7 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
           command: isWindows ? 'cmd.exe' : '/bin/sh',
           args: isWindows ? ['/c', commandString] : ['-c', commandString],
           cwd: stdioConfig.cwd,
-          env: combinedEnv // Use the filtered environment object
+          env: combinedEnv
         });
 
         mcpClient = new McpClient({ name: 'utcp-mcp-stdio-client', version: '1.0.1' });
@@ -157,7 +153,7 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
 
       const result = await Promise.race([
         operation(mcpClient),
-        new Promise<T>((_, reject) => setTimeout(() => reject(new Error("MCP operation timed out")), 6000)) // Slightly longer timeout
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error("MCP operation timed out")), 6000))
       ]);
       return result;
     } finally {
@@ -185,7 +181,6 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
         errors: [errorMsg],
       };
     }
-
     // For simplicity, we'll discover tools from the *first* configured server.
     // A more complex implementation could merge tools from all servers.
     const [serverName, serverConfig] = Object.entries(mcpCallTemplate.config.mcpServers)[0]!;
@@ -204,7 +199,6 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
           config: mcpCallTemplate.config,
           auth: mcpCallTemplate.auth,
         });
-
 
         return {
           name: mcpTool.name,
@@ -256,8 +250,8 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
     }
     return result;
   }
-  
-  
+
+
   /**
    * Attempts to parse a string as JSON, otherwise returns the original string.
    */
@@ -267,7 +261,7 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
     } catch {
       const num = Number(text);
       if (!isNaN(num) && isFinite(num)) {
-          return num;
+        return num;
       }
       return text;
     }
@@ -286,11 +280,11 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
     if (!mcpCallTemplate.config?.mcpServers) {
       throw new Error(`No MCP server configuration for tool '${toolName}'.`);
     }
-    
+
     for (const [serverName, serverConfig] of Object.entries(mcpCallTemplate.config.mcpServers)) {
       try {
         this._logInfo(`Attempting tool '${toolName}' on server '${serverName}'.`);
-        const result = await this._withMcpClient(serverConfig, mcpCallTemplate.auth, 
+        const result = await this._withMcpClient(serverConfig, mcpCallTemplate.auth,
           (client) => client.callTool({ name: toolName, arguments: toolArgs })
         );
         return this._processMcpToolResult(result);
@@ -310,9 +304,9 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
 
   public async close(): Promise<void> {
     for (const client of this._httpMcpClientCache.values()) {
-        if (client && typeof client.close === 'function') {
-            await client.close();
-        }
+      if (client && typeof client.close === 'function') {
+        await client.close();
+      }
     }
     this._httpMcpClientCache.clear();
     this._oauthTokens.clear();

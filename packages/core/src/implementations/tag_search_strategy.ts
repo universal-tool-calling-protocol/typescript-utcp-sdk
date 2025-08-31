@@ -42,37 +42,32 @@ export class TagSearchStrategy implements ToolSearchStrategy {
 
     let tools = await toolRepository.getTools();
 
-    // Apply tag filtering if required
     if (anyOfTagsRequired && anyOfTagsRequired.length > 0) {
       const requiredTagsLower = new Set(anyOfTagsRequired.map(tag => tag.toLowerCase()));
       tools = tools.filter(tool =>
         tool.tags && tool.tags.some(tag => requiredTagsLower.has(tag.toLowerCase()))
       );
     }
-    
+
     const toolScores = tools.map(tool => {
       let score = 0.0;
 
-      // Score from explicit tags
       if (tool.tags) {
         for (const tag of tool.tags) {
           const tagLower = tag.toLowerCase();
-          // Check if the entire tag appears in the query or if query appears in tag
           if (queryLower.includes(tagLower) || tagLower.includes(queryLower)) {
             score += this.tagWeight;
           }
 
-          // Score from words within the tag
           const tagWords = new Set(tagLower.match(/\w+/g) || []);
           for (const word of tagWords) {
             if (queryWords.has(word)) {
-              score += this.tagWeight * 0.5; // Partial match for tag words
+              score += this.tagWeight * 0.5;
             }
           }
         }
       }
 
-      // Score from description
       if (tool.description) {
         const descriptionWords = new Set(
           tool.description.toLowerCase().match(/\w+/g) || []
@@ -87,13 +82,11 @@ export class TagSearchStrategy implements ToolSearchStrategy {
       return { tool, score };
     });
 
-    // Sort tools by score in descending order
     const sortedTools = toolScores
       .sort((a, b) => b.score - a.score)
-      .filter(item => item.score > 0) // Only include tools with a positive score
+      .filter(item => item.score > 0)
       .map(item => item.tool);
 
-    // Return up to 'limit' tools, or all if limit is 0
     return limit > 0 ? sortedTools.slice(0, limit) : sortedTools;
   }
 }

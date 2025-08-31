@@ -10,11 +10,8 @@ import { ToolRepository } from '@utcp/core/interfaces/tool_repository';
  * All data is lost when the application restarts.
  */
 export class InMemToolRepository implements ToolRepository {
-  // Maps toolName (namespaced) to Tool object
   private _toolsByName: Map<string, Tool> = new Map();
-  // Maps manualName to UtcpManual object
   private _manuals: Map<string, UtcpManual> = new Map();
-  // Maps manualName to CallTemplateBase object
   private _manualCallTemplates: Map<string, CallTemplateBase> = new Map();
 
   /**
@@ -24,21 +21,15 @@ export class InMemToolRepository implements ToolRepository {
    * @param manual The complete UTCP Manual object to save.
    */
   public async saveManual(manualCallTemplate: CallTemplateBase, manual: UtcpManual): Promise<void> {
-    const manualName = manualCallTemplate.name!; 
-
-    // Remove old tools associated with this manual
+    const manualName = manualCallTemplate.name!;
     const oldManual = this._manuals.get(manualName);
     if (oldManual) {
       for (const tool of oldManual.tools) {
         this._toolsByName.delete(tool.name);
       }
     }
-
-    // Save/replace manual and its call template
     this._manualCallTemplates.set(manualName, manualCallTemplate);
     this._manuals.set(manualName, manual);
-
-    // Index tools globally by name
     for (const tool of manual.tools) {
       this._toolsByName.set(tool.name, tool);
     }
@@ -53,15 +44,13 @@ export class InMemToolRepository implements ToolRepository {
   public async removeManual(manualName: string): Promise<boolean> {
     const oldManual = this._manuals.get(manualName);
     if (!oldManual) {
-      return false; // Manual not found
+      return false;
     }
 
-    // Remove tools associated with this manual
     for (const tool of oldManual.tools) {
       this._toolsByName.delete(tool.name);
     }
 
-    // Remove manual and its call template
     this._manuals.delete(manualName);
     this._manualCallTemplates.delete(manualName);
     return true;
@@ -76,10 +65,9 @@ export class InMemToolRepository implements ToolRepository {
   public async removeTool(toolName: string): Promise<boolean> {
     const toolRemoved = this._toolsByName.delete(toolName);
     if (!toolRemoved) {
-      return false; // Tool not found
+      return false;
     }
 
-    // Also remove from the associated manual's list of tools
     const manualName = toolName.split('.')[0];
     if (manualName) {
       const manual = this._manuals.get(manualName);

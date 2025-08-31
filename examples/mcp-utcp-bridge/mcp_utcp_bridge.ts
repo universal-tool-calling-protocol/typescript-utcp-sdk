@@ -20,16 +20,12 @@ const HTTP_PORT = 9999;
 async function main() {
   console.log("Initializing UTCP-MCP Bridge...");
 
-  // Register all plugins FIRST.
   registerHttpPlugin();
   registerTextPlugin();
   registerMcpPlugin();
   console.log("UTCP plugins registered.");
 
-  // Now define the MCP tools which rely on the populated registry.
   setupMcpTools();
-
-  // Initialize the UTCP client
   utcpClient = await initializeUtcpClient();
 
   const bridgeScriptPath = path.resolve(import.meta.dir, import.meta.file);

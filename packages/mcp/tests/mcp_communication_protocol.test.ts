@@ -33,11 +33,9 @@ const awaitStreamReady = async (stream: ReadableStream<Uint8Array>, readyMessage
   throw new Error(`Server did not emit ready message "${readyMessage}" in time. Full output:\n${output}`);
 };
 
-// Start mock servers before all tests
 beforeAll(async () => {
   console.log("Starting mock MCP servers for testing...");
 
-  // Start Stdio Server
   const stdioServerPath = path.resolve(import.meta.dir, "mock_mcp_server.ts");
   stdioServerProcess = Bun.spawn(["bun", "run", stdioServerPath], {
     stdout: "pipe",
@@ -46,7 +44,6 @@ beforeAll(async () => {
   console.log(`Spawned stdio server with PID: ${stdioServerProcess.pid}`);
   await awaitStreamReady(stdioServerProcess.stdout, "Mock STDIN MCP Server is running.");
 
-  // Start HTTP Server
   const httpServerPath = path.resolve(import.meta.dir, "mock_http_mcp_server.ts");
   httpServerProcess = Bun.spawn(["bun", "run", httpServerPath], {
     stdout: "pipe",
@@ -56,9 +53,8 @@ beforeAll(async () => {
   await awaitStreamReady(httpServerProcess.stdout, `Mock HTTP MCP Server listening on port ${HTTP_PORT}`);
 
   console.log("Both mock servers are ready.");
-}, 20000); // Increased timeout for server startup
+}, 20000);
 
-// Stop mock servers after all tests
 afterAll(() => {
   console.log("Stopping mock MCP servers...");
   stdioServerProcess?.kill();
@@ -89,7 +85,6 @@ describe("McpCommunicationProtocol", () => {
     test("should register manual successfully (passthrough)", async () => {
       const result = await protocol.registerManual({} as any, callTemplate);
       expect(result.success).toBe(true);
-      // The returned manual from registerManual is empty by design.
       expect(result.manual.tools).toHaveLength(0);
     });
 
@@ -127,20 +122,17 @@ describe("McpCommunicationProtocol", () => {
     test("should call a tool with structured output via http", async () => {
       const result = await protocol.callTool({} as any, "echo", { message: "hello http" }, callTemplate);
       expect(result).toEqual({ reply: "you said: hello http" });
-    }, 10000); // FIX: Increase test timeout to 10s for robustness
+    }, 10000);
 
     test("should call a tool with primitive output via http", async () => {
       const result = await protocol.callTool({} as any, "add", { a: 20, b: 5 }, callTemplate);
-      // The mock server returns a string, our text parser will attempt to convert it to a number.
-      expect(result).toBe(25); 
-    }, 10000); // FIX: Increase test timeout
+      expect(result).toBe(25);
+    }, 10000);
 
     test("should throw an error if tool is not found on any server", async () => {
-      // This test might still timeout if the server doesn't respond quickly to unknown tools.
-      // The underlying MCP client should ideally throw a 'method not found' error.
       await expect(
         protocol.callTool({} as any, "nonexistent_tool", {}, callTemplate)
       ).rejects.toThrow("Tool 'nonexistent_tool' failed on all configured MCP servers.");
-    }, 10000); // FIX: Increase test timeout
+    }, 10000);
   });
 });

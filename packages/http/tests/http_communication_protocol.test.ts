@@ -12,13 +12,12 @@ let app: Express;
 let server: Server;
 let serverPort: number;
 
-const mockClient = {} as IUtcpClient; // Mock client for protocol calls
+const mockClient = {} as IUtcpClient;
 
 beforeAll(async () => {
   app = express();
   app.use(express.json());
 
-  // Discovery endpoint
   app.get("/utcp", (req, res) => {
     res.json({
       utcp_version: "1.0.1",
@@ -36,36 +35,29 @@ beforeAll(async () => {
     });
   });
 
-  // Tool execution endpoint
   app.post("/tool", (req, res) => {
-    // Check for API Key
     if (req.headers['x-api-key'] && req.headers['x-api-key'] !== 'test-key') {
       return res.status(401).json({ error: "Invalid API Key" });
     }
-    // Check for Basic Auth
     const authHeader = req.headers.authorization;
     if (authHeader?.startsWith("Basic ") && authHeader !== `Basic ${btoa("user:pass")}`) {
       return res.status(401).json({ error: "Invalid Basic Auth Credentials" });
     }
-    // Check for OAuth2 Bearer Token
     if (authHeader?.startsWith("Bearer ") && authHeader !== "Bearer test-token") {
       return res.status(401).json({ error: "Invalid Bearer Token" });
     }
 
     res.json({ result: "success", received_body: req.body });
   });
-  
-  // Path parameter endpoint
+
   app.get("/tool/:param1/:param2", (req, res) => {
-      res.json({ result: "path_success", params: req.params, query: req.query });
+    res.json({ result: "path_success", params: req.params, query: req.query });
   });
 
-  // OAuth2 Token Endpoint
   app.post("/token", (req, res) => {
     res.json({ access_token: "test-token", expires_in: 3600 });
   });
 
-  // Error endpoint
   app.get("/error", (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   });
@@ -137,64 +129,64 @@ describe("HttpCommunicationProtocol", () => {
     });
 
     test("should correctly handle path and query parameters", async () => {
-        const callTemplate: HttpCallTemplate = {
-            name: "path_test",
-            call_template_type: "http",
-            url: `http://localhost:${serverPort}/tool/{param1}/{param2}`,
-            http_method: "GET",
-        };
+      const callTemplate: HttpCallTemplate = {
+        name: "path_test",
+        call_template_type: "http",
+        url: `http://localhost:${serverPort}/tool/{param1}/{param2}`,
+        http_method: "GET",
+      };
 
-        const result = await protocol.callTool(
-            mockClient, 
-            "test.tool", 
-            { param1: "foo", param2: "bar", query1: "baz" }, 
-            callTemplate
-        );
-        expect(result).toEqual({ result: "path_success", params: {param1: "foo", param2: "bar"}, query: {query1: "baz"} });
+      const result = await protocol.callTool(
+        mockClient,
+        "test.tool",
+        { param1: "foo", param2: "bar", query1: "baz" },
+        callTemplate
+      );
+      expect(result).toEqual({ result: "path_success", params: { param1: "foo", param2: "bar" }, query: { query1: "baz" } });
     });
-    
+
     test("should handle ApiKeyAuth in headers", async () => {
-        const auth: ApiKeyAuth = { auth_type: 'api_key', api_key: 'test-key', var_name: 'X-Api-Key', location: 'header' };
-        const callTemplate: HttpCallTemplate = {
-            name: "test_server",
-            call_template_type: "http",
-            url: `http://localhost:${serverPort}/tool`,
-            http_method: "POST",
-            auth: auth
-        };
-        const result = await protocol.callTool(mockClient, "test.tool", {}, callTemplate);
-        expect(result.result).toBe("success");
+      const auth: ApiKeyAuth = { auth_type: 'api_key', api_key: 'test-key', var_name: 'X-Api-Key', location: 'header' };
+      const callTemplate: HttpCallTemplate = {
+        name: "test_server",
+        call_template_type: "http",
+        url: `http://localhost:${serverPort}/tool`,
+        http_method: "POST",
+        auth: auth
+      };
+      const result = await protocol.callTool(mockClient, "test.tool", {}, callTemplate);
+      expect(result.result).toBe("success");
     });
-    
+
     test("should handle BasicAuth", async () => {
-        const auth: BasicAuth = { auth_type: 'basic', username: 'user', password: 'pass' };
-        const callTemplate: HttpCallTemplate = {
-            name: "test_server",
-            call_template_type: "http",
-            url: `http://localhost:${serverPort}/tool`,
-            http_method: "POST",
-            auth: auth
-        };
-        const result = await protocol.callTool(mockClient, "test.tool", {}, callTemplate);
-        expect(result.result).toBe("success");
+      const auth: BasicAuth = { auth_type: 'basic', username: 'user', password: 'pass' };
+      const callTemplate: HttpCallTemplate = {
+        name: "test_server",
+        call_template_type: "http",
+        url: `http://localhost:${serverPort}/tool`,
+        http_method: "POST",
+        auth: auth
+      };
+      const result = await protocol.callTool(mockClient, "test.tool", {}, callTemplate);
+      expect(result.result).toBe("success");
     });
 
     test("should handle OAuth2Auth", async () => {
-        const auth: OAuth2Auth = {
-            auth_type: 'oauth2',
-            token_url: `http://localhost:${serverPort}/token`,
-            client_id: 'test-client',
-            client_secret: 'test-secret',
-        };
-        const callTemplate: HttpCallTemplate = {
-            name: "test_server",
-            call_template_type: "http",
-            url: `http://localhost:${serverPort}/tool`,
-            http_method: "POST",
-            auth: auth
-        };
-        const result = await protocol.callTool(mockClient, "test.tool", {}, callTemplate);
-        expect(result.result).toBe("success");
+      const auth: OAuth2Auth = {
+        auth_type: 'oauth2',
+        token_url: `http://localhost:${serverPort}/token`,
+        client_id: 'test-client',
+        client_secret: 'test-secret',
+      };
+      const callTemplate: HttpCallTemplate = {
+        name: "test_server",
+        call_template_type: "http",
+        url: `http://localhost:${serverPort}/tool`,
+        http_method: "POST",
+        auth: auth
+      };
+      const result = await protocol.callTool(mockClient, "test.tool", {}, callTemplate);
+      expect(result.result).toBe("success");
     });
   });
 });

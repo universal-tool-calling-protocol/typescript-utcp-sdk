@@ -11,7 +11,6 @@ import { registerMcpPlugin } from "@utcp/mcp";
 import { McpCallTemplate } from "@utcp/mcp";
 import { HttpCallTemplate } from "@utcp/http";
 
-// Mock Server Processes
 let httpManualServerProcess: Subprocess | null = null;
 let mcpStdioServerProcess: Subprocess | null = null;
 const tempFiles: string[] = [];
@@ -41,7 +40,7 @@ const awaitServerReady = async (stream: ReadableStream<Uint8Array>, readyMsg: st
 beforeAll(async () => {
   console.log("--- Starting mock servers for UtcpClient E2E test suite ---");
 
-  const httpManualServerPath = path.resolve(import.meta.dir,"servers", "http_manual_server.ts");
+  const httpManualServerPath = path.resolve(import.meta.dir, "servers", "http_manual_server.ts");
   httpManualServerProcess = Bun.spawn(["bun", "run", httpManualServerPath], {
     stdout: "pipe",
     stderr: "inherit",
@@ -65,7 +64,7 @@ beforeAll(async () => {
   registerMcpPlugin();
 
   console.log("--- All mock servers and plugins ready ---");
-}, 25000); // Increased timeout for all server startups
+}, 25000);
 
 // --- Teardown: Stop all mock servers after all tests run ---
 afterAll(async () => {
@@ -73,7 +72,6 @@ afterAll(async () => {
   httpManualServerProcess?.kill();
   mcpStdioServerProcess?.kill();
 
-  // Clean up any temporary files created by tests
   for (const file of tempFiles) {
     try {
       await unlink(file);
@@ -110,61 +108,51 @@ describe("UtcpClient End-to-End Tests", () => {
         tool_call_template: {
           name: "text_manual",
           call_template_type: "text",
-          file_path: dummyTextFilePath // Point to our dummy file
-        } as HttpCallTemplate // Use HttpCallTemplate for dummy to avoid direct text ref
+          file_path: dummyTextFilePath
+        } as HttpCallTemplate
       }]
     };
     const textManualConfigPath = path.join(import.meta.dir, "test_text_manual.json");
     await writeFile(textManualConfigPath, JSON.stringify(textManualContent));
     tempFiles.push(textManualConfigPath);
-
-    // Define the path to the MCP mock server script for the `command` option
     const mcpStdioServerScriptPath = path.resolve(import.meta.dir, "../../mcp/tests/mock_mcp_server.ts");
-
     // 2. Act: Create the client with manual_call_templates in its config
     const client = await UtcpClient.create({
       manual_call_templates: [
-        // HTTP Manual: Discovers tools from http_manual_server.ts
         {
-          name: "http_server_manual", // Renamed for clarity
+          name: "http_server_manual",
           call_template_type: "http",
           http_method: "GET",
           url: "http://localhost:9998/utcp",
         } as HttpCallTemplate,
-
-        // Text Manual: Loads tools from test_text_manual.json
         {
-          name: "local_text_manual", // Renamed for clarity
+          name: "local_text_manual",
           call_template_type: "text",
           file_path: textManualConfigPath,
-        } as HttpCallTemplate, // Cast as HttpCallTemplate to match the type expected by CallTemplateBase, type will be parsed correctly from file
-
-        // MCP Stdio Manual: Spawns the mock_mcp_server.ts
+        } as HttpCallTemplate,
         {
-          name: "mcp_stdio_client_manual", // Renamed for clarity
+          name: "mcp_stdio_client_manual",
           call_template_type: "mcp",
           config: {
             mcpServers: {
               mock_stdio_server: {
                 transport: 'stdio',
-                command: 'bun', // The executable
-                args: ['run', mcpStdioServerScriptPath], // Args for the executable
-                cwd: path.dirname(mcpStdioServerScriptPath) // Working directory for the spawned server
+                command: 'bun',
+                args: ['run', mcpStdioServerScriptPath],
+                cwd: path.dirname(mcpStdioServerScriptPath)
               }
             }
           }
-        } as McpCallTemplate, // Cast to McpCallTemplate
+        } as McpCallTemplate,
       ]
     });
 
     // 3. Assert: Check successful registrations and tool counts
     const allTools = await client.toolRepository.getTools();
     console.log(`[Test] Total tools registered: ${allTools.length}`);
-    
+
     // Expected tools: 1 from HTTP, 1 from Text, 2 from MCP = 4 tools
     expect(allTools.length).toBe(4);
-
-    // Check specific tools are defined
     const httpTool = await client.toolRepository.getTool("http_server_manual.get_user");
     const textTool = await client.toolRepository.getTool("local_text_manual.read_dummy_file");
     const mcpEchoTool = await client.toolRepository.getTool("mcp_stdio_client_manual.echo");
@@ -174,7 +162,7 @@ describe("UtcpClient End-to-End Tests", () => {
     expect(textTool).toBeDefined();
     expect(mcpEchoTool).toBeDefined();
     expect(mcpAddTool).toBeDefined();
-    
+
     // 4. Act & Assert: Call one tool from each protocol
     console.log("\n[Test] Calling HTTP tool...");
     const httpResult = await client.callTool("http_server_manual.get_user", {});
@@ -192,7 +180,7 @@ describe("UtcpClient End-to-End Tests", () => {
     expect(mcpResult).toBe(8);
     console.log(`[Test] MCP tool result: ${mcpResult}`);
 
-    await client.close(); // Important: Close the client to clean up resources
+    await client.close();
   });
 
   test("should handle variable substitution from config and .env file", async () => {
@@ -224,7 +212,7 @@ describe("UtcpClient End-to-End Tests", () => {
         "X-API-Key": "${MANUAL__HTTP_SERVER_MANUAL__LOCAL_API_KEY}", // From client.config.variables, namespaced
         "Authorization": "Bearer $GLOBAL_TOKEN" // From .env
       }
-    } as HttpCallTemplate; // Cast to HttpCallTemplate
+    } as HttpCallTemplate;
 
     // 2. Act: Substitute variables in the call template
     const processed = await client.substituteCallTemplateVariables(callTemplateWithVars, callTemplateWithVars.name);
@@ -233,7 +221,7 @@ describe("UtcpClient End-to-End Tests", () => {
     expect(processed.url).toBe("http://localhost:9998/endpoint?query=api.example.com");
     expect(processed.headers?.["X-API-Key"]).toBe("local_api_key_from_config");
     expect(processed.headers?.Authorization).toBe("Bearer global_secret_key");
-    
+
     await client.close();
   });
 
@@ -243,7 +231,6 @@ describe("UtcpClient End-to-End Tests", () => {
     // 1. Arrange: Create a clean client and register manuals
     const client = await UtcpClient.create();
 
-    // Register HTTP manual
     await client.registerManual({
       name: "http_search_manual",
       call_template_type: "http",
@@ -251,7 +238,6 @@ describe("UtcpClient End-to-End Tests", () => {
       url: "http://localhost:9998/utcp"
     } as HttpCallTemplate);
 
-    // Register MCP manual
     const mcpStdioServerScriptPath = path.resolve(import.meta.dir, "../../mcp/tests/mock_mcp_server.ts");
     await client.registerManual({
       name: "mcp_search_manual",
@@ -273,9 +259,9 @@ describe("UtcpClient End-to-End Tests", () => {
 
     // 3. Assert: Verify the search results
     console.log(`[Test] Search results for "echo": ${searchResults.map(t => t.name).join(', ')}`);
-    expect(searchResults.length).toBe(1); // Only the MCP 'echo' tool should match strongly
+    expect(searchResults.length).toBe(1);
     expect(searchResults[0]?.name).toBe("mcp_search_manual.echo");
-    
+
     await client.close();
   });
 });

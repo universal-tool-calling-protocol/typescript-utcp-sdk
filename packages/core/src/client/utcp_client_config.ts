@@ -1,6 +1,5 @@
 // packages/core/src/client/utcp_client_config.ts
 import { z } from 'zod';
-import { pluginRegistry } from '@utcp/core/plugins/plugin_registry';
 import { CallTemplateBaseSchema } from '@utcp/core/data/call_template';
 
 /**
@@ -19,7 +18,6 @@ export class UtcpVariableNotFoundError extends Error {
   }
 }
 
-// Schema for the dotenv variable source
 export const UtcpDotEnvLoaderSchema = z.object({
   variable_loader_type: z.literal('dotenv'),
   env_file_path: z.string().describe('Path to the .env file to load variables from.'),
@@ -56,9 +54,6 @@ export const UtcpClientConfigSchema = z.object({
    * A list of manually defined call templates for registering tools.
    * These are directly embedded in the client's configuration.
    */
-  // manual_call_templates: z.lazy(() => 
-  //   z.array(pluginRegistry.getCallTemplateUnionSchema())
-  // ).optional().default([]),
   manual_call_templates: z.array(CallTemplateBaseSchema).optional().default([]),
   // Future fields like toolRepositoryConfig, toolSearchStrategyConfig, postProcessingConfig
   // will be added here once their interfaces/implementations are defined.

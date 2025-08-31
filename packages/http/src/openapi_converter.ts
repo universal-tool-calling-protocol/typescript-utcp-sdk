@@ -57,16 +57,16 @@ export class OpenApiConverter {
 
     const servers = this.spec.servers;
     if (servers && Array.isArray(servers) && servers.length > 0 && servers[0].url) {
-        baseUrl = servers[0].url;
+      baseUrl = servers[0].url;
     } else if (this.specUrl) {
-        try {
-            const parsedUrl = new URL(this.specUrl);
-            baseUrl = `${parsedUrl.protocol}//${parsedUrl.host}`;
-        } catch (e) {
-            console.error(`[OpenApiConverter] Invalid specUrl provided: ${this.specUrl}`);
-        }
+      try {
+        const parsedUrl = new URL(this.specUrl);
+        baseUrl = `${parsedUrl.protocol}//${parsedUrl.host}`;
+      } catch (e) {
+        console.error(`[OpenApiConverter] Invalid specUrl provided: ${this.specUrl}`);
+      }
     } else {
-        console.warn("[OpenApiConverter] No server info or spec URL provided. Using fallback base URL: '/'");
+      console.warn("[OpenApiConverter] No server info or spec URL provided. Using fallback base URL: '/'");
     }
 
     const paths = this.spec.paths || {};
@@ -98,7 +98,7 @@ export class OpenApiConverter {
 
     const parts = ref.substring(2).split('/');
     let node: any = this.spec;
-    
+
     for (const part of parts) {
       // Decode URI components in case the part contains slashes or other special characters
       const decodedPart = decodeURIComponent(part);
@@ -108,7 +108,7 @@ export class OpenApiConverter {
       }
       node = node[decodedPart];
     }
-    
+
     return node;
   }
 
@@ -143,7 +143,7 @@ export class OpenApiConverter {
     for (const [key, value] of Object.entries(schema)) {
       newSchema[key] = this._resolveSchema(value, visitedRefs);
     }
-    
+
     return newSchema;
   }
 
@@ -156,9 +156,9 @@ export class OpenApiConverter {
    * @returns A Tool object or null if operationId is not defined.
    */
   private _createTool(
-    path: string, 
-    method: string, 
-    operation: Record<string, any>, 
+    path: string,
+    method: string,
+    operation: Record<string, any>,
     baseUrl: string
   ): Tool | null {
     const operationId = operation.operationId;
@@ -172,12 +172,10 @@ export class OpenApiConverter {
     const { inputs, headerFields, bodyField } = this._extractInputs(path, operation);
     const outputs = this._extractOutputs(operation);
     const auth = this._extractAuth(operation);
-
-    // Combine base URL and path, ensuring no double slashes
     const fullUrl = `${baseUrl.replace(/\/$/, '')}/${path.lstrip('/')}`;
 
     const callTemplate = HttpCallTemplateSchema.parse({
-      name: this._convertedCallTemplateName, // Use the sanitized call template name
+      name: this._convertedCallTemplateName,
       call_template_type: 'http',
       http_method: method.toUpperCase(),
       url: fullUrl,
@@ -215,7 +213,6 @@ export class OpenApiConverter {
     const pathItem = this.spec.paths?.[path] || {};
     const allParams = [...(pathItem.parameters || []), ...(operation.parameters || [])];
 
-    // Handle parameters (query, header, path, cookie, body)
     for (const param of allParams) {
       const resolvedParam = this._resolveSchema(param);
       const paramName = resolvedParam.name;
@@ -236,7 +233,7 @@ export class OpenApiConverter {
         if (resolvedParam.required) {
           required.push(bodyField);
         }
-        continue; // Skip further processing for this body parameter
+        continue;
       }
 
       // Other parameters (query, path, header, cookie)
@@ -261,10 +258,10 @@ export class OpenApiConverter {
     if (requestBody) {
       const resolvedBody = this._resolveSchema(requestBody);
       const content = resolvedBody.content || {};
-      const jsonSchema = content['application/json']?.schema || content['application/x-www-form-urlencoded']?.schema; // Also check for form data
-      
+      const jsonSchema = content['application/json']?.schema || content['application/x-www-form-urlencoded']?.schema;
+
       if (jsonSchema) {
-        bodyField = 'body'; // Arbitrary name for the combined body input
+        bodyField = 'body';
         properties[bodyField] = {
           description: resolvedBody.description || 'Request body',
           ...this._resolveSchema(jsonSchema),
@@ -293,7 +290,7 @@ export class OpenApiConverter {
     const responses = operation.responses || {};
     // Prioritize 200/201 responses, then fall back to 'default'
     const successResponse = responses['200'] || responses['201'] || responses['default'];
-    
+
     if (!successResponse) {
       return {};
     }
@@ -302,39 +299,37 @@ export class OpenApiConverter {
     let jsonSchema: any = null;
 
     if ('content' in resolvedResponse) { // OpenAPI 3.0
-        const content = resolvedResponse.content || {};
-        jsonSchema = content['application/json']?.schema || content['text/plain']?.schema;
-        if (!jsonSchema && Object.keys(content).length > 0) {
-          // Fallback to first content type's schema, with a type guard
-          const firstContentTypeValue = Object.values(content)[0];
-          if (typeof firstContentTypeValue === 'object' && firstContentTypeValue !== null && 'schema' in firstContentTypeValue) {
-            jsonSchema = (firstContentTypeValue as { schema: any }).schema;
-          }
+      const content = resolvedResponse.content || {};
+      jsonSchema = content['application/json']?.schema || content['text/plain']?.schema;
+      if (!jsonSchema && Object.keys(content).length > 0) {
+        // Fallback to first content type's schema, with a type guard
+        const firstContentTypeValue = Object.values(content)[0];
+        if (typeof firstContentTypeValue === 'object' && firstContentTypeValue !== null && 'schema' in firstContentTypeValue) {
+          jsonSchema = (firstContentTypeValue as { schema: any }).schema;
         }
-      } else if ('schema' in resolvedResponse) { // OpenAPI 2.0
-    jsonSchema = resolvedResponse.schema;
+      }
+    } else if ('schema' in resolvedResponse) { // OpenAPI 2.0
+      jsonSchema = resolvedResponse.schema;
     }
 
     if (!jsonSchema) {
       return {};
     }
 
-    // Resolve $ref in response schema
     const resolvedJsonSchema = this._resolveSchema(jsonSchema);
-    
     const schemaArgs: JsonSchema = {
       type: resolvedJsonSchema.type || 'object',
       properties: resolvedJsonSchema.properties || undefined,
       required: resolvedJsonSchema.required || undefined,
       description: resolvedJsonSchema.description || undefined,
       title: resolvedJsonSchema.title || undefined,
-      items: resolvedJsonSchema.items || undefined, // Handle array item types
+      items: resolvedJsonSchema.items || undefined,
       enum: resolvedJsonSchema.enum || undefined,
       minimum: resolvedJsonSchema.minimum || undefined,
       maximum: resolvedJsonSchema.maximum || undefined,
       format: resolvedJsonSchema.format || undefined,
     };
-    
+
     return schemaArgs;
   }
 
@@ -346,34 +341,29 @@ export class OpenApiConverter {
   private _extractAuth(operation: Record<string, any>): Auth | undefined {
     // First check for operation-level security requirements
     let securityRequirements = operation.security || [];
-    
     // If no operation-level security, check global security requirements
     if (!securityRequirements.length) {
       securityRequirements = this.spec.security || [];
     }
-    
     // If no security requirements, return undefined
     if (!securityRequirements.length) {
       return undefined;
     }
-    
     // Get security schemes - support both OpenAPI 2.0 and 3.0
     const securitySchemes = this._getSecuritySchemes();
-    
     // Process the first security requirement (most common case).
     // Each security requirement is a dictionary with scheme name as key.
     for (const securityReq of securityRequirements) {
-      for (const schemeName of Object.keys(securityReq)) { // Iterate over keys (scheme names)
+      for (const schemeName of Object.keys(securityReq)) {
         if (schemeName in securitySchemes) {
           const scheme = securitySchemes[schemeName];
           return this._createAuthFromScheme(scheme);
         }
       }
     }
-    
     return undefined;
   }
-  
+
   /**
    * Gets security schemes supporting both OpenAPI 2.0 and 3.0.
    * @returns A record of security schemes.
@@ -383,11 +373,10 @@ export class OpenApiConverter {
     if ('components' in this.spec) {
       return this.spec.components?.securitySchemes || {};
     }
-    
     // OpenAPI 2.0 format
     return this.spec.securityDefinitions || {};
   }
-  
+
   /**
    * Creates an Auth object from an OpenAPI security scheme.
    * @param scheme The security scheme object.
@@ -398,8 +387,8 @@ export class OpenApiConverter {
 
     if (schemeType === 'apikey') {
       const location = scheme.in || 'header';
-      const paramName = scheme.name || 'Authorization'; // Default to Authorization for API keys in header
-      
+      const paramName = scheme.name || 'Authorization';
+
       const apiKeyPlaceholder = this._getPlaceholder("API_KEY");
 
       return ApiKeyAuthSchema.parse({
@@ -443,8 +432,6 @@ export class OpenApiConverter {
 
     if (schemeType === 'oauth2') {
       const flows = scheme.flows || {};
-      
-      // Attempt to find a suitable flow (e.g., clientCredentials)
       for (const flowConfig of Object.values(flows)) {
         const tokenUrl = (flowConfig as Record<string, any>).tokenUrl;
         if (tokenUrl) {
