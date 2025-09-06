@@ -1,4 +1,4 @@
-// packages/core/src/interfaces/tool_repository.ts
+// packages/core/src/interfaces/concurrent_tool_repository.ts
 import { CallTemplateBase } from '@utcp/core/data/call_template';
 import { Tool } from '@utcp/core/data/tool';
 import { UtcpManual } from '@utcp/core/data/utcp_manual';
@@ -12,9 +12,16 @@ import { UtcpManual } from '@utcp/core/data/utcp_manual';
  * - Providing efficient lookup and retrieval operations
  * - Managing relationships between call templates and tools
  * - Ensuring data consistency and thread safety (though in JS/TS, "thread safety"
- *   often translates to careful async programming and immutable data structures).
+ *   often translates to careful async programming and immutable data structures,
+ *   or careful use of locks/semaphores if shared mutable state is unavoidable).
  */
-export interface ToolRepository {
+export interface ConcurrentToolRepository {
+  /**
+   * A string identifying the type of this tool repository (e.g., 'in_memory', 'database').
+   * This is used for configuration and plugin lookup.
+   */
+  tool_repository_type: string;
+
   /**
    * Saves a manual's call template and its associated tools in the repository.
    * This operation replaces any existing manual with the same name.

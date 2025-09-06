@@ -1,6 +1,6 @@
 // packages/core/src/interfaces/tool_search_strategy.ts
 import { Tool } from '@utcp/core/data/tool';
-import { ToolRepository } from '@utcp/core/interfaces/tool_repository';
+import { ConcurrentToolRepository } from '@utcp/core/interfaces/concurrent_tool_repository';
 
 /**
  * Defines the contract for tool search strategies that can be plugged into
@@ -19,7 +19,7 @@ export interface ToolSearchStrategy {
    * @returns List of Tool objects ranked by relevance, limited to the specified count.
    */
   searchTools(
-    toolRepository: ToolRepository,
+    toolRepository: ConcurrentToolRepository,
     query: string,
     limit?: number,
     anyOfTagsRequired?: string[]

@@ -1,13 +1,28 @@
 // packages/core/src/implementations/tag_search_strategy.ts
 import { Tool } from '@utcp/core/data/tool';
-import { ToolRepository } from '@utcp/core/interfaces/tool_repository';
+import { ConcurrentToolRepository } from '@utcp/core/interfaces/concurrent_tool_repository';
 import { ToolSearchStrategy } from '@utcp/core/interfaces/tool_search_strategy';
+import { z } from 'zod'; // Added zod import
+
+
+/**
+ * Schema for the TagSearchStrategy configuration.
+ */
+export const TagSearchStrategyConfigSchema = z.object({
+  tool_search_strategy_type: z.literal('tag_and_description_word_match'),
+  description_weight: z.number().optional().default(1),
+  tag_weight: z.number().optional().default(3),
+}).passthrough();
+
+export type TagSearchStrategyConfig = z.infer<typeof TagSearchStrategyConfigSchema>;
+
 
 /**
  * Implements a tool search strategy based on tag and description matching.
  * Tools are scored based on the occurrence of query words in their tags and description.
  */
 export class TagSearchStrategy implements ToolSearchStrategy {
+  public readonly tool_search_strategy_type: 'tag_and_description_word_match' = 'tag_and_description_word_match';
   private readonly descriptionWeight: number;
   private readonly tagWeight: number;
 
@@ -25,14 +40,14 @@ export class TagSearchStrategy implements ToolSearchStrategy {
   /**
    * Searches for tools by matching tags and description content against a query.
    *
-   * @param toolRepository The repository to search for tools.
+   * @param concurrentToolRepository The repository to search for tools.
    * @param query The search query string.
    * @param limit The maximum number of tools to return. If 0, all matched tools are returned.
    * @param anyOfTagsRequired Optional list of tags where one of them must be present in the tool's tags.
    * @returns A promise that resolves to a list of tools ordered by relevance.
    */
   public async searchTools(
-    toolRepository: ToolRepository,
+    concurrentToolRepository: ConcurrentToolRepository,
     query: string,
     limit: number = 10,
     anyOfTagsRequired?: string[]
@@ -40,7 +55,7 @@ export class TagSearchStrategy implements ToolSearchStrategy {
     const queryLower = query.toLowerCase();
     const queryWords = new Set(queryLower.match(/\w+/g) || []);
 
-    let tools = await toolRepository.getTools();
+    let tools = await concurrentToolRepository.getTools();
 
     if (anyOfTagsRequired && anyOfTagsRequired.length > 0) {
       const requiredTagsLower = new Set(anyOfTagsRequired.map(tag => tag.toLowerCase()));
