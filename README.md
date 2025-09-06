@@ -1,7 +1,9 @@
 # Universal Tool Calling Protocol (UTCP) for TypeScript
 
+[![Follow Org](https://img.shields.io/github/followers/universal-tool-calling-protocol?label=Follow%20Org&logo=github)](https://github.com/universal-tool-calling-protocol)
 [![NPM version](https://img.shields.io/npm/v/@utcp/core.svg)](https://www.npmjs.com/package/@utcp/core)
-[![License](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
+[![License](https://img.shields.io/github/license/universal-tool-calling-protocol/python-utcp)](https://github.com/universal-tool-calling-protocol/typescript-utcp/blob/main/LICENSE)
+[![CDTM S23](https://img.shields.io/badge/CDTM-S23-0b84f3)](https://cdtm.com/)
 
 **The Universal Tool Calling Protocol (UTCP) is a modern, flexible, and scalable standard for defining and interacting with tools across a wide variety of communication protocols. This repository contains the official TypeScript implementation, structured as a monorepo with a lean core and pluggable communication protocols.**
 
@@ -13,6 +15,8 @@ UTCP offers a unified framework for integrating disparate tools and services, ma
 *   **Extensibility**: A pluggable architecture allows developers to easily add new communication protocols, tool storage mechanisms, and search strategies without modifying the core library.
 *   **Interoperability**: With a growing ecosystem of protocol plugins—including HTTP, MCP, Text, and CLI—UTCP can integrate with almost any existing service or infrastructure.
 *   **Type Safety**: The protocol is built on well-defined TypeScript interfaces and runtime validation powered by Zod, making it robust and easy for developers to use.
+
+![MCP vs. UTCP](https://github.com/user-attachments/assets/3cadfc19-8eea-4467-b606-66e580b89444)
 
 ## Getting Started
 
