@@ -1,0 +1,33 @@
+{
+    "name": "@utcp/cli",
+    "version": "1.0.1",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "type": "module",
+    "scripts": {
+      "build": "tsc"
+    },
+    "files": [
+      "dist"
+    ],
+    "exports": {
+      ".": {
+        "import": "./dist/index.js",
+        "require": "./dist/index.js",
+        "types": "./dist/*.d.ts"
+      },
+      "./*": {
+        "import": "./dist/*.js",
+        "require": "./dist/*.js",
+        "types": "./dist/*.d.ts"
+      }
+    },
+    "dependencies": {
+      "@utcp/core": "workspace:*"
+    },
+    "devDependencies": {
+      "bun-types": "latest",
+      "typescript": "^5.0.0",
+      "@types/bun": "latest"
+    }
+  }

@@ -16,10 +16,13 @@
       "@utcp/core/*": ["packages/core/src/*"],
       "@utcp/http": ["packages/http/src"],
       "@utcp/http/*": ["packages/http/src/*"],
-      "@utcp/text": ["packages/text/src"],
-      "@utcp/text/*": ["packages/text/src/*"],
       "@utcp/mcp": ["packages/mcp/src"],
       "@utcp/mcp/*": ["packages/mcp/src/*"],
+      "@utcp/text": ["packages/text/src"],
+      "@utcp/text/*": ["packages/text/src/*"],
+      "@utcp/cli": ["packages/cli/src"],
+      "@utcp/cli/*": ["packages/cli/src/*"],
+
     },
     "outDir": "dist",
     "composite": true,
@@ -40,7 +43,8 @@
   "references": [
     { "path": "./packages/core" },
     { "path": "./packages/http" },
+    { "path": "./packages/mcp" },
     { "path": "./packages/text" },
-    { "path": "./packages/mcp" }
+    { "path": "./packages/cli" }
   ]
 }
