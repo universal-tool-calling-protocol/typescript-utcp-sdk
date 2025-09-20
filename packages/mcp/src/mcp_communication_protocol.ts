@@ -151,7 +151,7 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
         this._logInfo(`Connection error detected on '${sessionKey}'. Cleaning up and retrying once...`);
         await this._cleanupSession(sessionKey);
         const newClient = await this._getOrCreateSession(serverName, serverConfig, auth);
-        return operation(newClient);
+        return await Promise.race([operation(newClient), new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`MCP operation on '${sessionKey}' timed out after 15s.`)), 15000))]);
       }
       
       throw e;
