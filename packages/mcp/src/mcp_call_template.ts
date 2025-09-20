@@ -8,7 +8,7 @@ import { OAuth2AuthSchema } from '@utcp/core/data/auth';
  * Used for local process communication with an MCP server.
  */
 export const McpStdioServerSchema = z.object({
-  transport: z.literal('stdio').default('stdio'),
+  transport: z.literal('stdio'),
   command: z.string().describe('The command to execute the MCP server.'),
   args: z.array(z.string()).optional().default([]).describe('Arguments to pass to the command.'),
   cwd: z.string().optional().describe('Working directory for the command.'),
