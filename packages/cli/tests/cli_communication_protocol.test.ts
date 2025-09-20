@@ -143,6 +143,6 @@ describe('CliCommunicationProtocol (Multi-Command)', () => {
 
     const result = await cliProtocol.callTool(mockClient, 'test.env', {}, callTemplate);
     expect(result).toInclude('Var is Hello World from Env');
-    expect(path.normalize(result.trim())).toInclude(path.normalize(tempDir));
+    expect(path.normalize(result.trim())).toContain(path.normalize(tempDir));
   });
 });

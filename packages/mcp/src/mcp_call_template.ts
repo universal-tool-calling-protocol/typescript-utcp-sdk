@@ -16,7 +16,6 @@ export const McpStdioServerSchema = z.object({
 });
 export type McpStdioServer = z.infer<typeof McpStdioServerSchema>;
 
-
 /**
  * MCP HTTP Server schema for MCP servers connected via streamable HTTP.
  */
@@ -47,7 +46,6 @@ export const McpConfigSchema = z.object({
 });
 export type McpConfig = z.infer<typeof McpConfigSchema>;
 
-
 /**
  * MCP Call Template schema for Model Context Protocol tools.
  * Enables communication with MCP servers.
@@ -55,7 +53,6 @@ export type McpConfig = z.infer<typeof McpConfigSchema>;
 export const McpCallTemplateSchema = CallTemplateBaseSchema.extend({
   call_template_type: z.literal('mcp'),
   config: McpConfigSchema.describe('Configuration object containing MCP server definitions.'),
-  cwd: z.string().optional().describe('The working directory for the server process.'),
   auth: OAuth2AuthSchema.optional().describe('Optional OAuth2 authentication for HTTP-based MCP servers.'),
 });
 export type McpCallTemplate = z.infer<typeof McpCallTemplateSchema>;
