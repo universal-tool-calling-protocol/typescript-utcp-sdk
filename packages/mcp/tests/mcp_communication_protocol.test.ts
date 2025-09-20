@@ -1,16 +1,18 @@
 // packages/mcp/tests/mcp_communication_protocol.test.ts
-import { test, expect, beforeAll, afterAll, describe } from "bun:test";
+import { test, expect, beforeAll, afterAll, describe, afterEach } from "bun:test";
 import { Subprocess } from "bun";
 import path from "path";
 import { McpCommunicationProtocol } from "../src/mcp_communication_protocol";
 import { McpCallTemplate } from "../src/mcp_call_template";
+import { IUtcpClient } from "@utcp/core";
 
 const HTTP_PORT = 9999;
 let stdioServerProcess: Subprocess | null = null;
 let httpServerProcess: Subprocess | null = null;
 
-// Helper to wait for a specific log message from a subprocess stream
-const awaitStreamReady = async (stream: ReadableStream<Uint8Array>, readyMessage: string, timeout = 15000) => {
+const mockClient = {} as IUtcpClient;
+
+const awaitServerReady = async (stream: ReadableStream<Uint8Array>, readyMessage: string, timeout = 20000) => {
   const reader = stream.getReader();
   const start = Date.now();
   let output = "";
@@ -29,7 +31,6 @@ const awaitStreamReady = async (stream: ReadableStream<Uint8Array>, readyMessage
   } finally {
     reader.releaseLock();
   }
-
   throw new Error(`Server did not emit ready message "${readyMessage}" in time. Full output:\n${output}`);
 };
 
@@ -42,7 +43,7 @@ beforeAll(async () => {
     stderr: "inherit",
   });
   console.log(`Spawned stdio server with PID: ${stdioServerProcess.pid}`);
-  await awaitStreamReady(stdioServerProcess.stdout, "Mock STDIN MCP Server is running.");
+  await awaitServerReady(stdioServerProcess.stdout, "Mock STDIN MCP Server is running.");
 
   const httpServerPath = path.resolve(import.meta.dir, "mock_http_mcp_server.ts");
   httpServerProcess = Bun.spawn(["bun", "run", httpServerPath], {
@@ -50,12 +51,12 @@ beforeAll(async () => {
     stderr: "inherit",
   });
   console.log(`Spawned http server with PID: ${httpServerProcess.pid}`);
-  await awaitStreamReady(httpServerProcess.stdout, `Mock HTTP MCP Server listening on port ${HTTP_PORT}`);
+  await awaitServerReady(httpServerProcess.stdout, `Mock HTTP MCP Server listening on port ${HTTP_PORT}`);
 
   console.log("Both mock servers are ready.");
-}, 20000);
+}, 25000);
 
-afterAll(() => {
+afterAll(async () => {
   console.log("Stopping mock MCP servers...");
   stdioServerProcess?.kill();
   httpServerProcess?.kill();
@@ -63,9 +64,11 @@ afterAll(() => {
 });
 
 describe("McpCommunicationProtocol", () => {
-  const protocol = new McpCommunicationProtocol();
 
   describe("Stdio Transport", () => {
+    const protocol = new McpCommunicationProtocol();
+    afterEach(async () => { await protocol.close(); });
+
     const stdioServerPath = path.resolve(import.meta.dir, "mock_mcp_server.ts");
     const callTemplate: McpCallTemplate = {
       name: "mock_stdio_manual",
@@ -82,24 +85,32 @@ describe("McpCommunicationProtocol", () => {
       }
     };
 
-    test("should register manual successfully (passthrough)", async () => {
-      const result = await protocol.registerManual({} as any, callTemplate);
+    test("should register manual and discover tools from stdio server", async () => {
+      const result = await protocol.registerManual(mockClient, callTemplate);
       expect(result.success).toBe(true);
-      expect(result.manual.tools).toHaveLength(0);
+      expect(result.manual.tools.length).toBeGreaterThan(0);
+      expect(result.manual.tools[0]?.name).toBe("mock_stdio_server.echo");
     });
 
     test("should call a tool with structured output via stdio", async () => {
-      const result = await protocol.callTool({} as any, "echo", { message: "hello stdio" }, callTemplate);
+      const result = await protocol.callTool(mockClient, "mock_stdio_server.echo", { message: "hello stdio" }, callTemplate);
       expect(result).toEqual({ reply: "you said: hello stdio" });
     });
 
     test("should call a tool with primitive output via stdio", async () => {
-      const result = await protocol.callTool({} as any, "add", { a: 10, b: 5 }, callTemplate);
+      const result = await protocol.callTool(mockClient, "mock_stdio_server.add", { a: 10, b: 5 }, callTemplate);
       expect(result).toBe(15);
     });
   });
 
   describe("HTTP Transport", () => {
+    const protocol = new McpCommunicationProtocol();
+    
+    // This will run once after all tests in this describe block are done.
+    afterAll(async () => {
+      await protocol.close();
+    });
+
     const callTemplate: McpCallTemplate = {
       name: "mock_http_manual",
       call_template_type: "mcp",
@@ -113,26 +124,35 @@ describe("McpCommunicationProtocol", () => {
       }
     };
 
-    test("should register manual successfully via http (passthrough)", async () => {
-      const result = await protocol.registerManual({} as any, callTemplate);
+    test("should register manual and discover tools from http server", async () => {
+      const result = await protocol.registerManual(mockClient, callTemplate);
       expect(result.success).toBe(true);
-      expect(result.manual.tools).toHaveLength(0);
+      expect(result.manual.tools).toHaveLength(2);
+      expect(result.manual.tools[0]?.name).toBe("mock_http_server.echo");
+      expect(result.manual.tools[1]?.name).toBe("mock_http_server.add");
     });
 
     test("should call a tool with structured output via http", async () => {
-      const result = await protocol.callTool({} as any, "echo", { message: "hello http" }, callTemplate);
+      // This test will now reuse the session created in the previous test
+      const result = await protocol.callTool(mockClient, "mock_http_server.echo", { message: "hello http" }, callTemplate);
       expect(result).toEqual({ reply: "you said: hello http" });
     }, 10000);
 
     test("should call a tool with primitive output via http", async () => {
-      const result = await protocol.callTool({} as any, "add", { a: 20, b: 5 }, callTemplate);
+      const result = await protocol.callTool(mockClient, "mock_http_server.add", { a: 20, b: 5 }, callTemplate);
       expect(result).toBe(25);
     }, 10000);
+    
+    test("should throw an error if tool name is not namespaced correctly", async () => {
+        await expect(
+            protocol.callTool(mockClient, "nonexistent_tool", {}, callTemplate)
+        ).rejects.toThrow("Invalid MCP tool name format: 'nonexistent_tool'. Expected 'serverName.toolName'.");
+    }, 10000);
 
-    test("should throw an error if tool is not found on any server", async () => {
-      await expect(
-        protocol.callTool({} as any, "nonexistent_tool", {}, callTemplate)
-      ).rejects.toThrow("Tool 'nonexistent_tool' failed on all configured MCP servers.");
+    test("should throw an error if server name from tool is not in config", async () => {
+        await expect(
+            protocol.callTool(mockClient, "unknown_server.some_tool", {}, callTemplate)
+        ).rejects.toThrow("Configuration for MCP server 'unknown_server' not found in manual 'mock_http_manual'.");
     }, 10000);
   });
 });
