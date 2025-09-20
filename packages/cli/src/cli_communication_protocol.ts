@@ -1,19 +1,15 @@
 // packages/cli/src/cli_communication_protocol.ts
 import { CommunicationProtocol, RegisterManualResult } from '@utcp/core/interfaces/communication_protocol';
 import { CallTemplateBase } from '@utcp/core/data/call_template';
-import { UtcpManual, UtcpManualSchema } from '@utcp/core/data/utcp_manual';
+import { UtcpManualSchema } from '@utcp/core/data/utcp_manual';
 import { IUtcpClient } from '@utcp/core/client/utcp_client';
-import { CliCallTemplate, CliCallTemplateSchema } from '@utcp/cli/cli_call_template';
+import { CliCallTemplateSchema, CommandStep } from '@utcp/cli/cli_call_template';
 import { spawn, ChildProcess } from 'child_process';
 import { clearTimeout } from 'timers';
 import { Readable } from 'stream';
 
 /**
- * CLI communication protocol implementation for UTCP client.
- *
- * Handles execution of local command-line tools as UTCP tools.
- * Supports tool discovery by running a command that outputs a UTCP manual,
- * and tool execution by running a command with arguments.
+ * CLI communication protocol that executes multi-command workflows.
  */
 export class CliCommunicationProtocol implements CommunicationProtocol {
   private _logInfo(message: string): void {
@@ -24,61 +20,49 @@ export class CliCommunicationProtocol implements CommunicationProtocol {
     console.error(`[CliCommunicationProtocol Error] ${message}`, error);
   }
 
-  /**
-   * Executes a command-line program and captures its stdout and stderr.
-   * @param command The command to execute, including args as separate elements.
-   * @param options Options for `child_process.spawn` (cwd, env, etc.).
-   * @param timeoutMs Maximum time to wait for the command to complete.
-   * @returns A promise that resolves to an object containing stdout, stderr, and exit code.
-   */
-  private async _executeCommand(
-    command: string[],
+  private async _executeShellScript(
+    script: string,
     options: { cwd?: string; env?: Record<string, string> } = {},
-    timeoutMs: number = 30000,
+    timeoutMs: number = 60000,
   ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+    const isWindows = process.platform === 'win32';
+    const shell = isWindows ? 'powershell.exe' : '/bin/bash';
+    const args = isWindows ? ['-NoProfile', '-Command', script] : ['-c', script];
+    
     let childProcess: ChildProcess | undefined;
-    const commandName = command[0];
-    const commandArgs = command.slice(1);
 
     try {
-      const currentProcessEnv = typeof process !== 'undefined' && process.env ? process.env : {};
+      const currentProcessEnv = typeof process !== 'undefined' ? process.env : {};
       const mergedEnv = { ...currentProcessEnv, ...options.env };
 
-      childProcess = spawn(commandName, commandArgs, {
+      childProcess = spawn(shell, args, {
         cwd: options.cwd,
         env: mergedEnv,
         stdio: ['ignore', 'pipe', 'pipe'],
-        shell: false,
       });
 
       const readStream = async (stream: Readable | null): Promise<string> => {
         if (!stream) return '';
         let buffer = '';
         for await (const chunk of stream) {
-          buffer += new TextDecoder().decode(chunk);
+          buffer += chunk.toString();
         }
         return buffer;
       };
 
-      let stdoutPromise = readStream(childProcess.stdout);
-      let stderrPromise = readStream(childProcess.stderr);
-
+      const stdoutPromise = readStream(childProcess.stdout);
+      const stderrPromise = readStream(childProcess.stderr);
       const exitCodePromise = new Promise<number | null>((resolve) => {
         childProcess?.on('close', (code) => resolve(code));
+        childProcess?.on('error', () => resolve(1));
       });
 
       const timeoutPromise = new Promise<never>((_, reject) => {
         const id = setTimeout(() => {
-          if (childProcess && !childProcess.killed) {
-            childProcess.kill();
-          }
-          reject(new Error(`Command timed out after ${timeoutMs}ms.`));
+          childProcess?.kill();
+          reject(new Error(`Command script timed out after ${timeoutMs}ms.`));
         }, timeoutMs);
         childProcess?.on('close', () => clearTimeout(id));
-        childProcess?.on('error', (err) => { // Also clear timeout on spawn error
-          clearTimeout(id);
-          reject(err);
-        });
       });
 
       const [stdout, stderr, exitCode] = await Promise.race([
@@ -86,224 +70,133 @@ export class CliCommunicationProtocol implements CommunicationProtocol {
         timeoutPromise,
       ]);
 
-      return {
-        stdout: stdout as string,
-        stderr: stderr as string,
-        exitCode: exitCode as number | null,
-      };
-
+      return { stdout, stderr, exitCode };
     } catch (e: any) {
-      if (childProcess && !childProcess.killed) {
-        childProcess.kill();
-      }
-      if (e.message.includes('spawn') && e.code === 'ENOENT') {
-          const errorMessage = `Command '${commandName}' not found or executable. Check your PATH.`;
-          this._logError(errorMessage, e);
-          throw new Error(errorMessage);
-      }
-      this._logError(`Error executing command '${command.join(' ')}':`, e);
+      childProcess?.kill();
+      this._logError(`Error executing shell script:`, e);
       throw e;
     }
   }
 
-  /**
-   * Parses a command string into an array of arguments, handling quotes.
-   * This is a basic implementation that attempts to be cross-platform compatible
-   * but may not cover all edge cases of shell parsing across different OS.
-   *
-   * @param commandString The full command string (e.g., "ls -l 'my dir'").
-   * @returns An array of command and arguments.
-   */
-  private _parseCommandString(commandString: string): string[] {
-    const args: string[] = [];
-    let currentArg = '';
-    let inQuote: "'" | '"' | false = false;
-    let escaped = false;
-
-    for (let i = 0; i < commandString.length; i++) {
-      const char = commandString[i];
-
-      if (escaped) {
-        currentArg += char;
-        escaped = false;
-        continue;
+  private _substituteUtcpArgs(command: string, toolArgs: Record<string, any>): string {
+    const pattern = /UTCP_ARG_([a-zA-Z0-9_]+?)_UTCP_END/g;
+    return command.replace(pattern, (match, argName) => {
+      if (argName in toolArgs) {
+        // Return the raw value. The shell will handle it correctly when it's inside quotes
+        // in the final command (e.g., echo "Initial message: Workflow Argument").
+        return String(toolArgs[argName]);
       }
+      this._logError(`Missing argument '${argName}' for placeholder in command: ${command}`);
+      return `MISSING_ARG_${argName}`;
+    });
+  }
+  
+  private _buildCombinedShellScript(commands: CommandStep[], toolArgs: Record<string, any>): string {
+    const isWindows = process.platform === 'win32';
+    const scriptLines: string[] = [];
 
-      if (char === '\\') {
-        escaped = true;
-        continue;
-      }
+    if (isWindows) {
+      scriptLines.push('$ErrorActionPreference = "Stop"');
+    } else {
+      scriptLines.push('#!/bin/bash');
+      scriptLines.push('set -e');
+    }
 
-      if (inQuote) {
-        if (char === inQuote) {
-          inQuote = false;
-        } else {
-          currentArg += char;
+    commands.forEach((step, i) => {
+      let finalCommand = this._substituteUtcpArgs(step.command, toolArgs);
+
+      finalCommand = finalCommand.replace(/\$CMD_(\d+)_OUTPUT/g, (match, indexStr) => {
+        const index = parseInt(indexStr, 10);
+        if (index < i) {
+          // Wrap in quotes for safety in Bash
+          return isWindows ? `$CMD_${index}_OUTPUT` : `"$CMD_${index}_OUTPUT"`;
         }
+        return match;
+      });
+
+      // FIX: `cd` must be executed in the main shell, not a subshell, to affect subsequent commands.
+      if (finalCommand.trim().startsWith('cd ')) {
+        scriptLines.push(finalCommand);
+        // Set the output variable to an empty string since `cd` produces no stdout.
+        scriptLines.push(isWindows ? `$CMD_${i}_OUTPUT = ""` : `CMD_${i}_OUTPUT=""`);
       } else {
-        if (char === '"' || char === "'") {
-          inQuote = char;
-        } else if (char === ' ') {
-          if (currentArg !== '') {
-            args.push(currentArg);
-            currentArg = '';
-          }
+        if (isWindows) {
+          scriptLines.push(`$CMD_${i}_OUTPUT = ( ${finalCommand} 2>&1 | Out-String ).Trim()`);
         } else {
-          currentArg += char;
+          scriptLines.push(`CMD_${i}_OUTPUT=$( ${finalCommand} 2>&1 )`);
         }
       }
+    });
+
+    const outputLines: string[] = [];
+    commands.forEach((step, i) => {
+      const isLastCommand = i === commands.length - 1;
+      const shouldAppend = step.append_to_final_output ?? isLastCommand;
+
+      if (shouldAppend) {
+        outputLines.push(isWindows ? `$CMD_${i}_OUTPUT` : `echo -n "$CMD_${i}_OUTPUT"`);
+      }
+    });
+
+    if (isWindows) {
+        // Joining with a newline for PowerShell
+        scriptLines.push(outputLines.join("\n"));
+    } else {
+        // Use printf to precisely control newlines in Bash
+        scriptLines.push(outputLines.join(" && printf '\\n' && "));
     }
 
-    if (currentArg !== '') {
-      args.push(currentArg);
-    }
-
-    if (inQuote) {
-      this._logError(`Unmatched quote '${inQuote}' in command string: ${commandString}`);
-    }
-
-    return args.filter(arg => arg.length > 0);
+    return scriptLines.join('\n');
   }
 
-  /**
-   * Registers a CLI manual by executing a discovery command and parsing its output.
-   * The command is expected to print a UTCP Manual JSON to stdout.
-   * @param caller The UTCP client instance.
-   * @param manualCallTemplate The CLI call template for discovery.
-   * @returns A RegisterManualResult object.
-   */
   public async registerManual(caller: IUtcpClient, manualCallTemplate: CallTemplateBase): Promise<RegisterManualResult> {
     const cliCallTemplate = CliCallTemplateSchema.parse(manualCallTemplate);
-
-    this._logInfo(`Registering CLI manual '${cliCallTemplate.name}' using command: '${cliCallTemplate.command_name}'`);
+    this._logInfo(`Registering CLI manual '${cliCallTemplate.name}' by executing discovery command(s).`);
 
     try {
-      const commandArgs = this._parseCommandString(cliCallTemplate.command_name);
-      const executionOptions = {
+      const script = this._buildCombinedShellScript(cliCallTemplate.commands, {});
+      const { stdout, stderr, exitCode } = await this._executeShellScript(script, {
         cwd: cliCallTemplate.cwd,
         env: cliCallTemplate.env,
-      };
-
-      const { stdout, stderr, exitCode } = await this._executeCommand(commandArgs, executionOptions);
+      });
 
       if (exitCode !== 0) {
-        this._logError(`Discovery command failed for '${cliCallTemplate.name}' with exit code ${exitCode}. Stderr: ${stderr}`);
-        return {
-          manualCallTemplate: cliCallTemplate,
-          manual: UtcpManualSchema.parse({ tools: [] }),
-          success: false,
-          errors: [`Discovery command failed with exit code ${exitCode}. Stderr: ${stderr.trim()}`],
-        };
+        throw new Error(`Discovery script failed with exit code ${exitCode}. Stderr: ${stderr.trim()}`);
       }
-
-      let utcpManual: UtcpManual;
-      try {
-        utcpManual = UtcpManualSchema.parse(JSON.parse(stdout));
-        this._logInfo(`Discovered ${utcpManual.tools.length} tools from CLI manual '${cliCallTemplate.name}'.`);
-      } catch (parseError: any) {
-        this._logError(`Failed to parse UTCP Manual from stdout for '${cliCallTemplate.name}'. Error: ${parseError.message}. Stdout: ${stdout.substring(0, 500)}`);
-        return {
-          manualCallTemplate: cliCallTemplate,
-          manual: UtcpManualSchema.parse({ tools: [] }),
-          success: false,
-          errors: [`Failed to parse UTCP Manual from discovery command output. Error: ${parseError.message}`],
-        };
-      }
-
-      return {
-        manualCallTemplate: cliCallTemplate,
-        manual: utcpManual,
-        success: true,
-        errors: [],
-      };
+      
+      const utcpManual = UtcpManualSchema.parse(JSON.parse(stdout));
+      this._logInfo(`Discovered ${utcpManual.tools.length} tools from CLI manual '${cliCallTemplate.name}'.`);
+      
+      return { manualCallTemplate: cliCallTemplate, manual: utcpManual, success: true, errors: [] };
     } catch (e: any) {
       this._logError(`Error during CLI manual registration for '${cliCallTemplate.name}':`, e);
-      return {
-        manualCallTemplate: cliCallTemplate,
-        manual: UtcpManualSchema.parse({ tools: [] }),
-        success: false,
-        errors: [e.message || String(e)],
-      };
+      return { manualCallTemplate, manual: UtcpManualSchema.parse({ tools: [] }), success: false, errors: [e.message] };
     }
   }
 
-  /**
-   * Deregisters a CLI manual. This is a no-op for stateless CLI execution.
-   * @param caller The UTCP client instance.
-   * @param manualCallTemplate The CLI call template to deregister.
-   */
   public async deregisterManual(caller: IUtcpClient, manualCallTemplate: CallTemplateBase): Promise<void> {
     this._logInfo(`Deregistering CLI manual '${manualCallTemplate.name}' (no-op).`);
-    return Promise.resolve();
   }
 
-  /**
-   * Formats tool arguments into command-line arguments.
-   * Converts a dictionary of arguments into command-line flags and values.
-   * E.g., `{ message: "hello", count: 5, verbose: true }` becomes `["--message", "hello", "--count", "5", "--verbose"]`.
-   * @param toolArgs The arguments object for the tool.
-   * @returns An array of strings representing command-line arguments.
-   */
-  private _formatToolArguments(toolArgs: Record<string, any>): string[] {
-    const formattedArgs: string[] = [];
-    for (const key in toolArgs) {
-      if (Object.prototype.hasOwnProperty.call(toolArgs, key)) {
-        const value = toolArgs[key];
-        if (typeof value === 'boolean') {
-          if (value) {
-            formattedArgs.push(`--${key}`);
-          }
-        } else if (Array.isArray(value)) {
-          for (const item of value) {
-            formattedArgs.push(`--${key}`, String(item));
-          }
-        } else {
-          formattedArgs.push(`--${key}`, String(value));
-        }
-      }
-    }
-    return formattedArgs;
-  }
-
-  /**
-   * Calls a CLI tool by executing its command with arguments.
-   * @param caller The UTCP client instance.
-   * @param toolName The full namespaced name of the tool.
-   * @param toolArgs The arguments for the tool call.
-   * @param toolCallTemplate The CLI call template for the tool.
-   * @returns The result of the tool call (parsed JSON or raw stdout string).
-   */
   public async callTool(caller: IUtcpClient, toolName: string, toolArgs: Record<string, any>, toolCallTemplate: CallTemplateBase): Promise<any> {
     const cliCallTemplate = CliCallTemplateSchema.parse(toolCallTemplate);
-
-    this._logInfo(`Calling CLI tool '${toolName}' using command: '${cliCallTemplate.command_name}' with args: ${JSON.stringify(toolArgs)}`);
-
+    this._logInfo(`Calling CLI tool '${toolName}' by executing multi-command workflow.`);
+    
     try {
-      const baseCommandArgs = this._parseCommandString(cliCallTemplate.command_name);
-      const formattedToolArgs = this._formatToolArguments(toolArgs);
-      
-      const isNodeEvalCommand = baseCommandArgs[0] === 'node' && baseCommandArgs[1] === '-e';
-      const fullCommand = isNodeEvalCommand
-        ? baseCommandArgs // Node -e commands usually don't take further args this way
-        : [...baseCommandArgs, ...cliCallTemplate.args, ...formattedToolArgs];
-
-      const executionOptions = {
+      const script = this._buildCombinedShellScript(cliCallTemplate.commands, toolArgs);
+      const { stdout, stderr, exitCode } = await this._executeShellScript(script, {
         cwd: cliCallTemplate.cwd,
         env: cliCallTemplate.env,
-      };
-
-      const { stdout, stderr, exitCode } = await this._executeCommand(fullCommand, executionOptions);
+      });
 
       if (exitCode !== 0) {
-        this._logError(`Tool command failed for '${toolName}' with exit code ${exitCode}. Stderr: ${stderr}`);
         throw new Error(`CLI tool '${toolName}' failed with exit code ${exitCode}. Stderr: ${stderr.trim()}`);
       }
 
-      const trimmedStdout = stdout.trim(); // Always trim stdout
-
+      const trimmedStdout = stdout.trim();
       try {
         return JSON.parse(trimmedStdout);
-      } catch (parseError) {
+      } catch {
         return trimmedStdout;
       }
     } catch (e: any) {
@@ -312,27 +205,13 @@ export class CliCommunicationProtocol implements CommunicationProtocol {
     }
   }
 
-  /**
-   * Calls a CLI tool streamingly. For simple CLI, this means executing the command once
-   * and yielding the complete result as a single chunk.
-   * @param caller The UTCP client instance.
-   * @param toolName The full namespaced name of the tool.
-   * @param toolArgs The arguments for the tool call.
-   * @param toolCallTemplate The CLI call template for the tool.
-   * @returns An async generator that yields chunks of the tool's response.
-   */
   public async *callToolStreaming(caller: IUtcpClient, toolName: string, toolArgs: Record<string, any>, toolCallTemplate: CallTemplateBase): AsyncGenerator<any, void, unknown> {
-    this._logInfo(`CLI protocol does not inherently support streaming for '${toolName}'. Fetching full response.`);
+    this._logInfo(`CLI protocol does not support true streaming for '${toolName}'. Yielding full response as a single chunk.`);
     const result = await this.callTool(caller, toolName, toolArgs, toolCallTemplate);
     yield result;
   }
 
-  /**
-   * Closes any persistent connections or resources held by the communication protocol.
-   * For stateless CLI, this is a no-op.
-   */
   public async close(): Promise<void> {
     this._logInfo("CLI Communication Protocol closed (no-op).");
-    return Promise.resolve();
   }
 }
