@@ -114,7 +114,6 @@ export class CliCommunicationProtocol implements CommunicationProtocol {
         return match;
       });
 
-      // FIX: `cd` must be executed in the main shell, not a subshell, to affect subsequent commands.
       if (finalCommand.trim().startsWith('cd ')) {
         scriptLines.push(finalCommand);
         // Set the output variable to an empty string since `cd` produces no stdout.

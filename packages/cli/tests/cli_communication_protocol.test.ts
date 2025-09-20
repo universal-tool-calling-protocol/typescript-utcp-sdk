@@ -120,13 +120,13 @@ describe('CliCommunicationProtocol (Multi-Command)', () => {
 
     const action = () => cliProtocol.callTool(mockClient, 'test.error', {}, callTemplate);
     
-    // FIX: Use `rejects.toThrow` for async error testing in Bun/Jest.
+    // Use `rejects.toThrow` for async error testing in Bun/Jest.
     await expect(action()).rejects.toThrow();
   });
 
   test('should use custom environment variables and working directory', async () => {
     const tempDir = await createTempDir('env_test_dir');
-    // FIX: Use correct PowerShell syntax for environment variables and current directory.
+    // Use correct PowerShell syntax for environment variables and current directory.
     const envCommand = isWindows ? 'Write-Output "Var is $env:MY_CUSTOM_VAR, CWD is $((Get-Location).Path)"' : 'echo "Var is $MY_CUSTOM_VAR, CWD is $(pwd)"';
 
     const callTemplate: CliCallTemplate = CliCallTemplateSchema.parse({
