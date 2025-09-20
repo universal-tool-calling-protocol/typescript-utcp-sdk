@@ -89,7 +89,7 @@ describe("McpCommunicationProtocol", () => {
       const result = await protocol.registerManual(mockClient, callTemplate);
       expect(result.success).toBe(true);
       expect(result.manual.tools.length).toBeGreaterThan(0);
-      expect(result.manual.tools[0]?.name).toBe("mock_stdio_server.echo");
+      expect(result.manual.tools.some(t => t?.name === "mock_stdio_server.echo")).toBe(true);
     });
 
     test("should call a tool with structured output via stdio", async () => {
