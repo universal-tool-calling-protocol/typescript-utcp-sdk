@@ -146,7 +146,7 @@ export class McpCommunicationProtocol implements CommunicationProtocol {
     } catch (e: any) {
       this._logError(`MCP operation on '${sessionKey}' failed:`, e.message);
       
-      const errorMsg = e.message.toLowerCase();
+      const errorMsg = String((e as any)?.message ?? e).toLowerCase();
       if (errorMsg.includes('closed') || errorMsg.includes('disconnected') || errorMsg.includes('econnreset') || errorMsg.includes('etimedout')) {
         this._logInfo(`Connection error detected on '${sessionKey}'. Cleaning up and retrying once...`);
         await this._cleanupSession(sessionKey);
